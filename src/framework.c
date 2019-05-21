@@ -1,3 +1,5 @@
+#include <ctype.h>
+#include <omp.h>
 #include "framework.h"
 
 typedef struct {
@@ -135,8 +137,94 @@ void read_file(char *input){
 
 }
 
-void flat_map(){
+
+int isseparator(char c) {
+	char *separators = ".,;:\"'()[]{}<>/?!\\\n ";
+	return strchr(separators, c) != NULL ? 1 : 0;
+}
+
+
+void find_next_word(char* input_buffer, int *start_index, int *end_index) {
+	int current_index = (*start_index);
+	int input_length =  strlen(lc.data[0].key);
 	
+	while(current_index < input_length) {
+
+		while(isseparator(input_buffer[current_index]) && current_index < input_length)
+			current_index ++;
+
+		*start_index = current_index;		//start of first word; hopefully
+
+		if(isdigit(input_buffer[current_index])) {	// should be followed only by digits
+			while(isdigit(input_buffer[current_index]) && current_index < input_length)
+				current_index ++;
+			if(isseparator(input_buffer[current_index])) {	// found word
+				*end_index = current_index - 1;
+				current_index = input_length;
+			} 
+			else { // not a valid word; skip until separator
+				while(!isseparator(input_buffer[current_index]) && current_index < input_length)
+					current_index ++;
+			}
+		} else 	if(isalpha(input_buffer[current_index])) {	// should be followed only by digits
+			while(isalpha(input_buffer[current_index]) && current_index < input_length)
+				current_index ++;
+			if(isseparator(input_buffer[current_index])) {	// found word
+				*end_index = current_index - 1;
+				current_index = input_length;
+			} 
+			else { // not a valid word; skip until separator
+				while(!isseparator(input_buffer[current_index]) && current_index < input_length)
+					current_index ++;
+			}
+		}
+	}
+	
+}
+
+
+void flat_map(){
+
+	int start_index = 0;
+	int end_index = 0;
+	char **words = (char **)calloc(100, sizeof(char *));
+	for (int i = 0; i < 100; i ++)
+        words[i] = (char *)calloc(100, sizeof(char));
+
+	int index = 0;
+
+	long int my_length = strlen(lc.data[0].key);
+
+	while(start_index < my_length - 1) {
+		find_next_word(lc.data[0].key, &start_index, &end_index);
+		int word_size = end_index - start_index + 1;
+		if(word_size <= 0) break;
+		words[index] = (char *)realloc(words[index], (word_size + 2) * sizeof(char));
+		strncpy(words[index], lc.data[0].key + start_index, word_size);
+		words[index][word_size] = '\0';
+		index ++;
+		if (index % 99 == 0)
+			words = (char **)realloc(words, sizeof(char **) * index * 3/2);
+		start_index = end_index + 1;
+	}
+
+
+	lc.data = (KeyValue*) realloc(lc.data, index * sizeof(KeyValue));
+
+	#pragma omp parallel for
+	for(int i = 0; i < index; i ++) {
+		KeyValue new_kv_pair;
+		new_kv_pair.key = (char *)malloc(strlen(words[i]) * sizeof(char));
+		strcpy(new_kv_pair.key, words[i]);
+		new_kv_pair.value = 1;
+		lc.data[i] = new_kv_pair;
+	}
+
+	lc.local_data_len = index - 1;
+
+	for(int i = 0; i < index; i ++) {
+		printf("%d: %s %d\n", lc.world_rank, lc.data[i].key, lc.data[i].value);
+	}
 }
 
 void reduce(){
@@ -145,13 +233,6 @@ void reduce(){
 
 void write_file(){
 
-	//calculate local size
-	int local_size = 0;
-	int i;
-	for(i = 0; i < lc.local_data_len; i++) {
-		KeyValue kv = lc.data[i];
-		local_size += sizeof(kv.key) / sizeof(char);
-	}
 }
 
 

@@ -12,18 +12,18 @@ struct KeyValue {
 struct Data data;
 struct KeyValue kv;
 
-int read_file(char *input){
+void read_file(char *input){
 }
 
-int flat_map(){
+void flat_map(){
 	
 }
 
-int reduce(){
+void reduce(){
 	
 }
 
-int write_file(char *output){
+void write_file(char *output){
 
 }
 

@@ -10,11 +10,11 @@
 
 #include <mpi.h>
 
-int read_file(char *);
+void read_file(char *);
 
-int flat_map();
+void flat_map();
 
-int reduce();
+void reduce();
 
-int write_file(char *);
+void write_file(char *);
 #endif

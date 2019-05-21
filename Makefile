@@ -1,4 +1,4 @@
-CC = mpicc
+CC = cc
 SRC = $(wildcard src/*.c)
 OBJ = $(SRC:.c=.o)
 BIN = ./bin
@@ -15,10 +15,10 @@ ${BIN}:
 	mkdir -p $(BIN)
 
 %.o: %.c
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(CC) -fopenmp  $(CFLAGS) -c -o $@ $<
 
 $(BIN)/$(TARGET): $(OBJ)
-	$(CC) $(LDFLAGS) -o $@ $^ -lm
+	$(CC) -fopenmp  $(LDFLAGS) -o $@ $^ -lm
 
 .PHONY: clean
 clean:

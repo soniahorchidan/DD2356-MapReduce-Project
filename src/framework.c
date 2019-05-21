@@ -188,8 +188,9 @@ void flat_map(){
 	int start_index = 0;
 	int end_index = 0;
 	char **words = (char **)calloc(100, sizeof(char *));
-	for (int i = 0; i < 100; i ++)
-        words[i] = (char *)calloc(100, sizeof(char));
+	int i;
+	for (i = 0; i < 100; i ++)
+   	     words[i] = (char *)calloc(100, sizeof(char));
 
 	int index = 0;
 
@@ -211,8 +212,8 @@ void flat_map(){
 
 	lc.data = (KeyValue*) realloc(lc.data, index * sizeof(KeyValue));
 
-	#pragma omp parallel for
-	for(int i = 0; i < index; i ++) {
+	#pragma omp parallel for private(i)
+	for(i = 0; i < index; i ++) {
 		KeyValue new_kv_pair;
 		new_kv_pair.key = (char *)malloc(strlen(words[i]) * sizeof(char));
 		strcpy(new_kv_pair.key, words[i]);
@@ -222,9 +223,9 @@ void flat_map(){
 
 	lc.local_data_len = index - 1;
 
-	for(int i = 0; i < index; i ++) {
+	for(i = 0; i < index; i ++) 
 		printf("%d: %s %d\n", lc.world_rank, lc.data[i].key, lc.data[i].value);
-	}
+	
 }
 
 void reduce(){

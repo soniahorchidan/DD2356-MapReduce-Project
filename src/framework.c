@@ -32,7 +32,7 @@ typedef struct {
 	// input size
 	long input_len;
 	//local size
-	long local_len;
+	long local_data_len;
 	// number of extra chars to read on both sides
 	int offset;
 
@@ -91,44 +91,47 @@ void read_file(char *input){
 	MPI_Comm_size(lc.col_comm, &lc.col_size);
 
 	// calculate local data size
-	lc.offset = 16;
+	lc.offset = 2;
 	int chunk_size = lc.input_len / lc.world_size;
-	lc.local_len = chunk_size;
-	lc.local_len += 2*lc.offset; // add size of sides
+	int read_len = chunk_size;
+	read_len += 2*lc.offset; // add size of sides
 	
 	// first process cannot read offset at the beginning of file
-	if (lc.world_rank == 0) lc.local_len -= lc.offset;
+	if (lc.world_rank == 0) read_len -= lc.offset;
 	
 	// last process cannot read offset at the end of file
 	// it should also read any remaining bytes
 	if (lc.world_rank == lc.world_size -1) {
-		lc.local_len -= lc.offset;
-		lc.local_len += lc.input_len % lc.world_size;
+		read_len -= lc.offset;
+		read_len += lc.input_len % lc.world_size;
 	}
 	
 	// create subarray datatype
 	int start_from[1] = {lc.world_rank * chunk_size};
 	int array_size[1] = {lc.input_len};
-	int subarray_size[1] = {lc.local_len};
+	int subarray_size[1] = {read_len};
 	if (lc.world_rank != 0) start_from[0]-= lc.offset;
 	
 	MPI_Type_create_subarray(1, array_size, subarray_size, start_from, MPI_ORDER_C, MPI_CHAR, &lc.subarray);
 	MPI_Type_commit(&lc.subarray);
 
 	// alloc space for reading
-	char *p = (char*) malloc(lc.local_len * sizeof(char));
+	char *p = (char*) malloc((read_len+1) * sizeof(char));
 
 	// read file
 	MPI_File_open(MPI_COMM_WORLD, input, MPI_MODE_RDONLY, MPI_INFO_NULL, &lc.input_file);
 	MPI_File_set_view(lc.input_file, 0, MPI_CHAR, lc.subarray, "native", MPI_INFO_NULL);
-	MPI_File_read_all(lc.input_file, p, lc.local_len, MPI_CHAR, MPI_STATUS_IGNORE);
+	MPI_File_read_all(lc.input_file, p, read_len, MPI_CHAR, MPI_STATUS_IGNORE);
 	MPI_File_close(&lc.input_file);
 
-	//printf("Rank %d read: %s\n",lc.world_rank ,p);
+	// terminate string
+	p[read_len] = '\0';
+	printf("Rank %d read: %s\n",lc.world_rank ,p);
 
 	lc.data = (KeyValue*) malloc(sizeof(KeyValue));
 	lc.data[0].key = p;
 	lc.data[0].value = 0;
+	lc.local_data_len = 1;
 
 }
 
@@ -142,6 +145,13 @@ void reduce(){
 
 void write_file(){
 
+	//calculate local size
+	int local_size = 0;
+	int i;
+	for(i = 0; i < lc.local_data_len; i++) {
+		KeyValue kv = lc.data[i];
+		local_size += sizeof(kv.key) / sizeof(char);
+	}
 }
 
 

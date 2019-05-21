@@ -1,4 +1,5 @@
 #include "framework.h"
+#include "structs.h"
 
 struct Data {
 	/* MPI Files */
@@ -30,11 +31,6 @@ struct Data {
 	/* Process local matrix dim */
 	int local_dims[2];
 	int local_size;
-};
-
-struct Chunk{
-	char* key;
-	int value;
 };
 
 struct Data data;

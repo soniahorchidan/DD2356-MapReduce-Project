@@ -47,7 +47,6 @@ int main(int argc, char *argv[])
 		start_time = MPI_Wtime();
 		// word country
 		flat_map();
-		flat_map();
 		reduce();
 		
 		MPI_Barrier(MPI_COMM_WORLD);

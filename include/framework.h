@@ -16,5 +16,5 @@ void flat_map();
 
 void reduce();
 
-void write_file(char *);
+void write_file();
 #endif

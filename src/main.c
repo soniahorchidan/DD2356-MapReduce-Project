@@ -6,13 +6,12 @@
 #include <mpi.h>
 
 #include "framework.h"
-#include "usecase.h"
 
 void print_usage();
 
 int main(int argc, char *argv[])
 {
-	int opt;
+	/*int opt;
 	int world_rank;
 	int repeat = 1;
 	void (*matmul)() = &compute_fox; 
@@ -45,14 +44,14 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
-	init_matmul(argv[optind], argv[optind + 1], argv[optind + 2]);
+	//init_matmul(argv[optind], argv[optind + 1], argv[optind + 2]);
 	MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 
 	int i;
 	for (i = 0; i < repeat; i++){
 		MPI_Barrier(MPI_COMM_WORLD);
 		start_time = MPI_Wtime();
-		matmul();
+		//matmul();
 		MPI_Barrier(MPI_COMM_WORLD);
 		end_time = MPI_Wtime();
 
@@ -69,9 +68,9 @@ int main(int argc, char *argv[])
 		printf("duration\t= %f±%f\n", avg_runtime, stddev_runtime);
 	}
 
-	cleanup_matmul();
+	//cleanup_matmul();
 	MPI_Finalize();
-
+*/
 	return 0;
 }
 

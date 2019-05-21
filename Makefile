@@ -23,3 +23,4 @@ $(BIN)/$(TARGET): $(OBJ)
 .PHONY: clean
 clean:
 	rm -f $(OBJ) $(BIN)/$(TARGET)
+	

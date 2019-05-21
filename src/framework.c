@@ -124,7 +124,11 @@ void read_file(char *input){
 	MPI_File_read_all(lc.input_file, p, lc.local_len, MPI_CHAR, MPI_STATUS_IGNORE);
 	MPI_File_close(&lc.input_file);
 
-	printf("Rank %d read: |%s|\n",lc.world_rank ,p);
+	//printf("Rank %d read: %s\n",lc.world_rank ,p);
+
+	lc.data = (KeyValue*) malloc(sizeof(KeyValue));
+	lc.data[0].key = p;
+	lc.data[0].value = 0;
 
 }
 

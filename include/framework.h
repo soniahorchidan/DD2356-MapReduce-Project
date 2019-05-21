@@ -12,11 +12,11 @@
 
 int read_file(char *)
 
-int flat_map(int, Chuck* (*mapper)(Chuck))
+int flat_map()
 
-int reduce(int, Chuck (*reducer)(Chuck, Chunk))
+int reduce()
 
-int write_file(int, char *)
+int write_file(char *)
 
 void free(int)
 #endif

@@ -23,7 +23,7 @@ void reduce(){
 	
 }
 
-void write_file(char *output){
+void write_file(){
 
 }
 

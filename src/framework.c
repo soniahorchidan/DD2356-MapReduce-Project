@@ -194,7 +194,7 @@ void flat_map(){
 		find_next_word(lc.data[0].key, &start_index, &end_index);
 		int word_size = end_index - start_index + 1;
 		if(word_size <= 0) break;
-		words[index] = (char *)malloc(word_size + 1 * sizeof(char));
+		words[index] = (char *)malloc((word_size + 1) * sizeof(char));
 		strncpy(words[index], lc.data[0].key + start_index, word_size);
 		words[index][word_size] = '\0';
 		index ++;

@@ -93,7 +93,7 @@ void read_file(char *input) {
     MPI_Comm_size(lc.col_comm, &lc.col_size);
 
     // calculate local data size
-    lc.offset = 2;
+    lc.offset = 0;
     int chunk_size = lc.input_len / lc.world_size;
     int read_len = chunk_size;
     read_len += 2 * lc.offset; // add size of sides
@@ -263,7 +263,6 @@ void reduce_local() {
     KeyValue *new_data = (KeyValue *) malloc((lc.local_data_len - merged) * sizeof(KeyValue));
     for (i = 0; i < lc.local_data_len; i++) {
         if (lc.data[i].key != NULL) {
-            if (lc.world_rank == 0) printf("NOT NULL\n");
             new_data[j].key = lc.data[i].key;
             new_data[j].value = lc.data[i].value;
             j++;
@@ -275,10 +274,99 @@ void reduce_local() {
     lc.local_data_len -= merged;
 }
 
+void merge(char *recv, int recv_size){
+
+	char buffer[16];
+	int j,i,k;
+	int remaining = 0;
+
+	i =  0;
+	while(i < recv_size){
+		
+		// read key
+		j = 0;
+		while(recv[i]!='\0'){
+			buffer[j] = recv[i];
+			i++;
+			j++;
+		}
+		i++; // for '\0'
+		buffer[j] = '\0';
+		
+		// read value
+		int value = recv[i]|recv[i+1]<<8|recv[i+2]<<16|recv[i+3]<<24;
+
+		//if (lc.world_rank == 0)printf("entry: |%s|, %d\n", buffer, value);
+
+		// try to merge with local bucket
+		int merged = 0;
+		for(k = 0; k < lc.local_data_len; k++){
+			if( strlen(lc.data[k].key) == j && memcmp(lc.data[k].key, buffer, j) == 0){
+				// merge
+				lc.data[k].value+= value;
+				// set value to -1
+				recv[i] = -1;
+				recv[i+1] = recv[i+2] = recv[i+3] = 0;
+
+				merged = 1;
+				break;
+			}
+		}
+		
+		if(merged == 0){
+			remaining++;
+		}
+		i+=4;
+	}
+
+	if(remaining == 0) return; // nothing to merge
+	int merge_size = lc.local_data_len + remaining;
+	KeyValue *merged = (KeyValue *) malloc(merge_size * sizeof(KeyValue));
+
+	// copy bucket
+	for (i=0; i<lc.local_data_len; i++) {
+    		merged[i].key = lc.data[i].key;
+		merged[i].value = lc.data[i].value;
+	}
+
+	// append rest of words to bucket
+	i =  0;
+	int l = lc.local_data_len;
+        while(i < recv_size){
+
+                // read key
+                j = 0;
+                while(recv[i]!='\0'){
+                        buffer[j] = recv[i];
+                        i++;
+                        j++;
+                }
+                i++; // for '\0'
+                buffer[j] = '\0';
+		j++;
+
+                // read value
+                int value = recv[i]|recv[i+1]<<8|recv[i+2]<<16|recv[i+3]<<24;
+                if(value != -1){
+			char *array = (char*) malloc(j);
+			memcpy(array, buffer, j);
+			merged[l].key = array;
+			merged[l].value = value;
+			l++;
+		}
+		i+=4;
+        }
+
+	free(lc.data);
+	lc.data = merged;
+	lc.local_data_len = merge_size;
+
+}
+
 void reduce() {
 
     // local reduce
-    local_reduce();
+    reduce_local();
 
     KeyValue **buckets = (KeyValue **) malloc(lc.world_size * sizeof(KeyValue *));
     int i;
@@ -310,7 +398,6 @@ void reduce() {
 
     free(sizes);
     free(buckets);
-
 }
 
 

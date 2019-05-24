@@ -223,9 +223,51 @@ void flat_map(){
     free(words);	
 }
 
-void reduce(){
-	
+unsigned long hash(char *str){
+    unsigned long hash = 5381;
+    int c;
+
+    while((c = *str++))
+        hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
+
+    return hash;
 }
+
+
+void reduce(){
+    KeyValue **buckets = (KeyValue**) malloc(lc.world_size * sizeof(KeyValue *));
+    int i;
+    for(i = 0; i < lc.world_size; i ++)
+        buckets[i] = (KeyValue *)malloc(sizeof(KeyValue));
+
+    int *sizes = (int *)calloc(lc.world_size, sizeof(int));
+    for(i = 0; i < lc.local_data_len; i ++) {
+        unsigned long word_hash = hash(lc.data[i].key);
+        int receiver = word_hash % lc.world_size;
+        buckets[receiver][sizes[receiver] ++] = lc.data[i];
+        buckets[receiver] = (KeyValue *)realloc(buckets[receiver], (sizes[receiver] + 1) * sizeof(KeyValue));
+    }
+
+    // printf("proc %d: ", lc.world_rank);
+    // for(i = 0; i < lc.world_size; i ++)
+    //     printf("%d ", sizes[i]);
+    // printf("\n\n");
+
+
+    int *rec_sizes = (int *)calloc(lc.world_size, sizeof(int));
+    
+    MPI_Alltoall(sizes, 1, MPI_INT, rec_sizes, 1, MPI_INT, MPI_COMM_WORLD);
+
+    // printf("proc %d: ", lc.world_rank);
+    // for(i = 0; i < lc.world_size; i ++)
+    //     printf("%d ", rec_sizes[i]);
+    // printf("\n\n");
+
+    free(sizes);
+    free(buckets);
+
+}
+
 
 void write_file(){
 	//calculate local size
@@ -243,7 +285,7 @@ void write_file(){
                 // space and newline
                 local_size += 2;
         }
-        printf("Rank %d will print %d chars\n", lc.world_rank, local_size);
+        // printf("Rank %d will print %d chars\n", lc.world_rank, local_size);
 
         // create local result
         char *result = (char*) malloc(local_size *sizeof(char));
@@ -254,7 +296,7 @@ void write_file(){
                 j+= sprintf(&result[j], "%s %d\n", kv.key, kv.value);
 
         }
-        printf("Rank %d result: |%s|\n", lc.world_rank, result);
+        // printf("Rank %d result: |%s|\n", lc.world_rank, result);
 
 
         // local sizes are distributed across the network

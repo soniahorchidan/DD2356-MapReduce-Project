@@ -215,7 +215,7 @@ void flat_map(){
 		lc.data[i] = new_kv_pair;
 	}
 
-	lc.local_data_len = index - 1;
+	lc.local_data_len = index;
 
 	// for(i = 0; i < index; i ++) 
 	// 	printf("%d: %s %d\n", lc.world_rank, lc.data[i].key, lc.data[i].value);

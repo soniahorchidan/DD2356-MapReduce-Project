@@ -136,8 +136,9 @@ void read_file(char *input){
 
 
 int isseparator(char c) {
-	char *separators = ".,;:\"'()[]{}<>/?!\\\n ";
-	return strchr(separators, c) != NULL ? 1 : 0;
+	//char *separators = ".,;:\"'()[]{}<>/?!\"\\\n ";
+	// return strchr(separators, c) != NULL ? 1 : 0;
+    return !isdigit(c) && !isalpha(c);
 }
 
 
@@ -184,25 +185,25 @@ void flat_map(){
 
 	int start_index = 0;
 	int end_index = 0;
-	char **words = (char **)calloc(100, sizeof(char *));
+	char **words = (char **)malloc(100 * sizeof(char *));
 	int i;
-	for (i = 0; i < 100; i ++)
-   	     words[i] = (char *)calloc(100, sizeof(char));
-
 	int index = 0;
 
 	long int my_length = strlen(lc.data[0].key);
-
 	while(start_index < my_length - 1) {
 		find_next_word(lc.data[0].key, &start_index, &end_index);
 		int word_size = end_index - start_index + 1;
 		if(word_size <= 0) break;
-		words[index] = (char *)realloc(words[index], (word_size + 2) * sizeof(char));
+		words[index] = (char *)malloc(word_size + 1 * sizeof(char));
 		strncpy(words[index], lc.data[0].key + start_index, word_size);
 		words[index][word_size] = '\0';
+        
 		index ++;
-		if (index % 99 == 0)
-			words = (char **)realloc(words, sizeof(char **) * index * 3/2);
+
+        printf("index=%d  word=%s\n", index, words[index - 1]);
+
+		if (index % 90 == 0)  
+            words = (char **)realloc(words, 2 * index * sizeof(* words));
 		start_index = end_index + 1;
 	}
 
@@ -222,7 +223,8 @@ void flat_map(){
 
 	for(i = 0; i < index; i ++) 
 		printf("%d: %s %d\n", lc.world_rank, lc.data[i].key, lc.data[i].value);
-	
+
+    free(words);	
 }
 
 void reduce(){

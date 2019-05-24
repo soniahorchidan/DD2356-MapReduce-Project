@@ -197,11 +197,7 @@ void flat_map(){
 		words[index] = (char *)malloc(word_size + 1 * sizeof(char));
 		strncpy(words[index], lc.data[0].key + start_index, word_size);
 		words[index][word_size] = '\0';
-        
 		index ++;
-
-        printf("index=%d  word=%s\n", index, words[index - 1]);
-
 		if (index % 90 == 0)  
             words = (char **)realloc(words, 2 * index * sizeof(* words));
 		start_index = end_index + 1;
@@ -221,8 +217,8 @@ void flat_map(){
 
 	lc.local_data_len = index - 1;
 
-	for(i = 0; i < index; i ++) 
-		printf("%d: %s %d\n", lc.world_rank, lc.data[i].key, lc.data[i].value);
+	// for(i = 0; i < index; i ++) 
+	// 	printf("%d: %s %d\n", lc.world_rank, lc.data[i].key, lc.data[i].value);
 
     free(words);	
 }
@@ -247,7 +243,7 @@ void write_file(){
                 // space and newline
                 local_size += 2;
         }
-        //printf("Rank %d will print %d chars\n", lc.world_rank, local_size);
+        printf("Rank %d will print %d chars\n", lc.world_rank, local_size);
 
         // create local result
         char *result = (char*) malloc(local_size *sizeof(char));
@@ -258,7 +254,7 @@ void write_file(){
                 j+= sprintf(&result[j], "%s %d\n", kv.key, kv.value);
 
         }
-        //printf("Rank %d result: |%s|\n", lc.world_rank, result);
+        printf("Rank %d result: |%s|\n", lc.world_rank, result);
 
 
         // local sizes are distributed across the network

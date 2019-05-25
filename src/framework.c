@@ -40,6 +40,8 @@ typedef struct {
     long local_data_len;
     // number of extra chars to read in the end of array
     int offset;
+    // max word size
+    int max_word_size;
 
 }
 LocalConfig;
@@ -47,6 +49,8 @@ LocalConfig;
 LocalConfig lc;
 
 void read_file(char * input) {
+
+    lc.max_word_size = 16;
 
     // get world details
     MPI_Comm_rank(MPI_COMM_WORLD, & lc.world_rank);
@@ -100,7 +104,7 @@ void read_file(char * input) {
     MPI_Comm_size(lc.col_comm, & lc.col_size);
 
     // calculate local data size
-    lc.offset = 2;
+    lc.offset = 15;
     int chunk_size = lc.input_len / lc.world_size;
     int read_len = chunk_size;
     read_len += lc.offset + 1; // +1 for the beginning
@@ -129,14 +133,17 @@ void read_file(char * input) {
     MPI_Type_create_subarray(1, array_size, subarray_size, start_from, MPI_ORDER_C, MPI_CHAR, & lc.subarray);
     MPI_Type_commit( & lc.subarray);
 
-    // alloc space for reading - p0 needs one extra byte for dummy separator
-    char *p, *p0;
+    // alloc space for reading
+    char *p, *p_dummy;
+
     if(lc.world_rank == 0){
-        p0 = (char * ) malloc((read_len+1) * sizeof(char));
-        p = &p0[1]; // we save the first slot for a separator
-	p0[0] = ',';
+        p_dummy = (char * ) malloc((read_len+2) * sizeof(char));
+        p = &p_dummy[1]; // we save the first slot for a separator
+	p_dummy[0] = ' ';
+        p_dummy[read_len+1] = '\0';
     }else{
-        p = (char * ) malloc((read_len) * sizeof(char));
+        p = (char * ) malloc((read_len+1) * sizeof(char));
+        p[read_len] = '\0';
     }
 
     // read file
@@ -145,7 +152,7 @@ void read_file(char * input) {
     MPI_File_read_all(lc.input_file, p, read_len, MPI_CHAR, MPI_STATUS_IGNORE);
     MPI_File_close( & lc.input_file);
 
-    if(lc.world_rank == 0) p = p0;
+    if(lc.world_rank == 0) p = p_dummy;
 
     printf("Rank %d read: |%s|\n",lc.world_rank ,p);
 
@@ -156,74 +163,64 @@ void read_file(char * input) {
 
 }
 
-int isseparator(char c) {
+int isSep(char c) {
     //char *separators = ".,;:\"'()[]{}<>/?!\"\\\n ";
     // return strchr(separators, c) != NULL ? 1 : 0;
     return !isdigit(c) && !isalpha(c);
 }
 
-void find_next_word(char * input_buffer, int * start_index, int * end_index) {
-    int current_index = ( * start_index);
-    int input_length = strlen(lc.data[0].key);
+void find_next_word(char * input_buffer, int * read_head, int * word_start_index, int * word_size) {
+    int total_chunk_len = strlen(lc.data[0].key);
+    int chunk_len = total_chunk_len - lc.offset;
+    if (lc.world_rank == lc.world_size -1) chunk_len+= lc.offset;
 
-    while (current_index < input_length) {
+    while (isSep(input_buffer[*read_head]) && *read_head < chunk_len) (*read_head)++;
 
-        while (isseparator(input_buffer[current_index]) && current_index < input_length)
-            current_index++;
+    *word_size = 0;
+    // if we are in next chunk's region
+    if(*read_head == chunk_len) return;
 
-        * start_index = current_index; //start of first word; hopefully
-
-        if (isdigit(input_buffer[current_index])) { // should be followed only by digits
-            while (isdigit(input_buffer[current_index]) && current_index < input_length)
-                current_index++;
-            if (isseparator(input_buffer[current_index])) { // found word
-                * end_index = current_index - 1;
-                current_index = input_length;
-            } else { // not a valid word; skip until separator
-                while (!isseparator(input_buffer[current_index]) && current_index < input_length)
-                    current_index++;
-            }
-        } else if (isalpha(input_buffer[current_index])) { // should be followed only by digits
-            while (isalpha(input_buffer[current_index]) && current_index < input_length)
-                current_index++;
-            if (isseparator(input_buffer[current_index])) { // found word
-                * end_index = current_index - 1;
-                current_index = input_length;
-            } else { // not a valid word; skip until separator
-                while (!isseparator(input_buffer[current_index]) && current_index < input_length)
-                    current_index++;
-            }
-        }
-    }
-
+    *word_start_index = *read_head; //start of first word; hopefully
+    do{
+        (*word_size)++;
+        (*read_head)++;
+    }while( (*word_size < lc.max_word_size) && !isSep(input_buffer[*read_head]) && (*read_head < total_chunk_len));
+    while(!isSep(input_buffer[*read_head]) && *read_head < chunk_len) (*read_head)++;
 }
+
+
 
 void flat_map() {
 
-    int start_index = 0;
-    int end_index = 0;
-    char ** words = (char ** ) malloc(100 * sizeof(char * ));
+    int buffer_size = 100;
+    int word_start_index;
+    int word_size;
+    char ** words = (char ** ) malloc(buffer_size * sizeof(char * ));
     int i;
-    int index = 0;
+    int word_counter = 0;
+    int read_head = 0;
 
-    long int my_length = strlen(lc.data[0].key);
-    while (start_index < my_length - 1) {
-        find_next_word(lc.data[0].key, & start_index, & end_index);
-        int word_size = end_index - start_index + 1;
-        if (word_size <= 0) break;
-        words[index] = (char * ) malloc((word_size + 1) * sizeof(char));
-        strncpy(words[index], lc.data[0].key + start_index, word_size);
-        words[index][word_size] = '\0';
-        index++;
-        if (index % 90 == 0)
-            words = (char ** ) realloc(words, 2 * index * sizeof( * words));
-        start_index = end_index + 1;
+    long int chunk_len = strlen(lc.data[0].key) - lc.offset; // remove offset size
+    if(lc.world_rank == lc.world_size -1) chunk_len+= lc.offset; // last chuck has no offset
+
+    // skip broken word - if any
+    while(!isSep(lc.data[0].key[read_head]) && read_head < chunk_len) read_head++;
+
+    while (read_head < chunk_len) {
+        find_next_word(lc.data[0].key, &read_head, & word_start_index, & word_size);
+        if (word_size == 0) break;
+        words[word_counter] = (char * ) malloc((word_size + 1) * sizeof(char));
+        strncpy(words[word_counter], lc.data[0].key + word_start_index, word_size);
+        words[word_counter][word_size] = '\0';
+        word_counter++;
+        if (word_counter % buffer_size == 0) // full
+            words = (char ** ) realloc(words, 2 * word_counter * sizeof( * words));
     }
 
-    lc.data = (KeyValue * ) realloc(lc.data, index * sizeof(KeyValue));
+    lc.data = (KeyValue * ) realloc(lc.data, word_counter * sizeof(KeyValue));
 
     #pragma omp parallel for private(i)
-    for (i = 0; i < index; i++) {
+    for (i = 0; i < word_counter; i++) {
         KeyValue new_kv_pair;
         new_kv_pair.key = (char * ) malloc(strlen(words[i]) * sizeof(char));
         strcpy(new_kv_pair.key, words[i]);
@@ -231,7 +228,7 @@ void flat_map() {
         lc.data[i] = new_kv_pair;
     }
 
-    lc.local_data_len = index;
+    lc.local_data_len = word_counter;
 
     // for(i = 0; i < index; i ++)
     //  printf("%d: %s %d\n", lc.world_rank, lc.data[i].key, lc.data[i].value);

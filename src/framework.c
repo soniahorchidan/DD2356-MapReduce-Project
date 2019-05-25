@@ -462,7 +462,7 @@ void reduce() {
         // find the right communicator to send to
         if(lc.world_rank % lc.grid_dim[0] == i % lc.grid_dim[0])    //same col
             MPI_Isend(send_bytes[i], sizes_bytes[i], MPI_BYTE, i / lc.grid_dim[0], 0, lc.col_comm, &send_requests[i]);
-        if(lc.world_rank / lc.grid_dim[0] == i / lc.grid_dim[0])    //same row
+        else if(lc.world_rank / lc.grid_dim[0] == i / lc.grid_dim[0])    //same row
             MPI_Isend(send_bytes[i], sizes_bytes[i], MPI_BYTE, i % lc.grid_dim[0], 0, lc.row_comm, &send_requests[i]);
         else 
             MPI_Isend(send_bytes[i], sizes_bytes[i], MPI_BYTE, i, 0, MPI_COMM_WORLD, &send_requests[i]);
@@ -476,7 +476,7 @@ void reduce() {
         // find the right communicator to receive from
         if(lc.world_rank % lc.grid_dim[0] == i % lc.grid_dim[0])    //same col
             MPI_Irecv(recv_bytes[i], recv_sizes_bytes[i], MPI_BYTE, i / lc.grid_dim[0], 0, lc.col_comm, &recv_requests[i]);
-        if(lc.world_rank / lc.grid_dim[0] == i / lc.grid_dim[0])    //same row
+        else if(lc.world_rank / lc.grid_dim[0] == i / lc.grid_dim[0])    //same row
             MPI_Irecv(recv_bytes[i], recv_sizes_bytes[i], MPI_BYTE, i % lc.grid_dim[0], 0, lc.row_comm, &recv_requests[i]);
         else 
             MPI_Irecv(recv_bytes[i], recv_sizes_bytes[i], MPI_BYTE, i, 0, MPI_COMM_WORLD, &recv_requests[i]);

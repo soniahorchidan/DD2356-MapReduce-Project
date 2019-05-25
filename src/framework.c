@@ -459,6 +459,7 @@ void reduce() {
     MPI_Request send_requests[lc.world_size];
 
     for (i = 0; i < lc.world_size; i++) {
+        // find the right communicator to send to
         if(lc.world_rank % lc.grid_dim[0] == i % lc.grid_dim[0])    //same col
             MPI_Isend(send_bytes[i], sizes_bytes[i], MPI_BYTE, i / lc.grid_dim[0], 0, lc.col_comm, &send_requests[i]);
         if(lc.world_rank / lc.grid_dim[0] == i / lc.grid_dim[0])    //same row
@@ -468,19 +469,28 @@ void reduce() {
     }
 
     char ** recv_bytes = (char ** ) malloc(lc.world_size * sizeof(char * ));
+    MPI_Request recv_requests[lc.world_size];
+
     for (i = 0; i < lc.world_size; i++) {
         recv_bytes[i] = (char * ) malloc(recv_sizes_bytes[i] * sizeof(char));
+        // find the right communicator to receive from
         if(lc.world_rank % lc.grid_dim[0] == i % lc.grid_dim[0])    //same col
-            MPI_Recv(recv_bytes[i], recv_sizes_bytes[i], MPI_BYTE, i / lc.grid_dim[0], 0, lc.col_comm, MPI_STATUS_IGNORE);
+            MPI_Irecv(recv_bytes[i], recv_sizes_bytes[i], MPI_BYTE, i / lc.grid_dim[0], 0, lc.col_comm, &recv_requests[i]);
         if(lc.world_rank / lc.grid_dim[0] == i / lc.grid_dim[0])    //same row
-            MPI_Recv(recv_bytes[i], recv_sizes_bytes[i], MPI_BYTE, i % lc.grid_dim[0], 0, lc.row_comm, MPI_STATUS_IGNORE);
+            MPI_Irecv(recv_bytes[i], recv_sizes_bytes[i], MPI_BYTE, i % lc.grid_dim[0], 0, lc.row_comm, &recv_requests[i]);
         else 
-            MPI_Recv(recv_bytes[i], recv_sizes_bytes[i], MPI_BYTE, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        merge(recv_bytes[i], recv_sizes_bytes[i]);
+            MPI_Irecv(recv_bytes[i], recv_sizes_bytes[i], MPI_BYTE, i, 0, MPI_COMM_WORLD, &recv_requests[i]);
+    }
+
+    int index_rec = 0;
+    for (i = 0; i < lc.world_size; i ++) {
+        // wait for any message to arrive, then merge
+        MPI_Waitany(lc.world_size, recv_requests, &index_rec, MPI_STATUS_IGNORE);
+        merge(recv_bytes[index_rec], recv_sizes_bytes[index_rec]);
     }
 
     MPI_Waitall(lc.world_size, send_requests, MPI_STATUS_IGNORE);
-
+ 
     free(recv_bytes);
     free(recv_sizes_bytes);
     free(send_bytes);

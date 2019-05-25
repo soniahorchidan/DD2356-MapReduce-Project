@@ -154,7 +154,7 @@ void read_file(char * input) {
 
     if(lc.world_rank == 0) p = p_dummy;
 
-    printf("Rank %d read: |%s|\n",lc.world_rank ,p);
+    // printf("Rank %d read: |%s|\n",lc.world_rank ,p);
 
     lc.data = (KeyValue * ) malloc(sizeof(KeyValue));
     lc.data[0].key = p;
@@ -459,13 +459,23 @@ void reduce() {
     MPI_Request send_requests[lc.world_size];
 
     for (i = 0; i < lc.world_size; i++) {
-        MPI_Isend(send_bytes[i], sizes_bytes[i], MPI_BYTE, i, 0, MPI_COMM_WORLD, & send_requests[i]);
+        if(lc.world_rank % lc.grid_dim[0] == i % lc.grid_dim[0])    //same col
+            MPI_Isend(send_bytes[i], sizes_bytes[i], MPI_BYTE, i / lc.grid_dim[0], 0, lc.col_comm, &send_requests[i]);
+        if(lc.world_rank / lc.grid_dim[0] == i / lc.grid_dim[0])    //same row
+            MPI_Isend(send_bytes[i], sizes_bytes[i], MPI_BYTE, i % lc.grid_dim[0], 0, lc.row_comm, &send_requests[i]);
+        else 
+            MPI_Isend(send_bytes[i], sizes_bytes[i], MPI_BYTE, i, 0, MPI_COMM_WORLD, &send_requests[i]);
     }
 
     char ** recv_bytes = (char ** ) malloc(lc.world_size * sizeof(char * ));
     for (i = 0; i < lc.world_size; i++) {
         recv_bytes[i] = (char * ) malloc(recv_sizes_bytes[i] * sizeof(char));
-        MPI_Recv(recv_bytes[i], recv_sizes_bytes[i], MPI_BYTE, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        if(lc.world_rank % lc.grid_dim[0] == i % lc.grid_dim[0])    //same col
+            MPI_Recv(recv_bytes[i], recv_sizes_bytes[i], MPI_BYTE, i / lc.grid_dim[0], 0, lc.col_comm, MPI_STATUS_IGNORE);
+        if(lc.world_rank / lc.grid_dim[0] == i / lc.grid_dim[0])    //same row
+            MPI_Recv(recv_bytes[i], recv_sizes_bytes[i], MPI_BYTE, i % lc.grid_dim[0], 0, lc.row_comm, MPI_STATUS_IGNORE);
+        else 
+            MPI_Recv(recv_bytes[i], recv_sizes_bytes[i], MPI_BYTE, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         merge(recv_bytes[i], recv_sizes_bytes[i]);
     }
 

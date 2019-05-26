@@ -482,10 +482,13 @@ void reduce() {
             MPI_Irecv(recv_bytes[i], recv_sizes_bytes[i], MPI_BYTE, i, 0, MPI_COMM_WORLD, &recv_requests[i]);
     }
 
+    lc.data = NULL;
+    lc.local_data_len = 0;
     int index_rec = 0;
     for (i = 0; i < lc.world_size; i ++) {
         // wait for any message to arrive, then merge
         MPI_Waitany(lc.world_size, recv_requests, &index_rec, MPI_STATUS_IGNORE);
+        // printf("PROCESS %d RECEIVED FROM PROCESS %d\n", lc.world_rank, index_rec);
         merge(recv_bytes[index_rec], recv_sizes_bytes[index_rec]);
     }
 
@@ -526,7 +529,7 @@ void write_file() {
         j += sprintf( & result[j], "%s %d\n", kv.key, kv.value);
 
     }
-    // printf("Rank %d result: |%s|\n", lc.world_rank, result);
+    // printf("Rank %d result: %s\n\n", lc.world_rank, result);
 
     // local sizes are distributed across the network
     int proc_size[lc.world_size];

@@ -71,7 +71,7 @@ void read_file(char * input) {
         MPI_File_get_size(lc.input_file, & size);
         MPI_File_close( & lc.input_file);
         lc.input_len = size - 1; // exclude EOF
-        printf("Input file contains %ld chars.\n", lc.input_len);
+        // printf("Input file contains %ld chars.\n", lc.input_len);
     }
 
     // broadcast input size
@@ -82,6 +82,7 @@ void read_file(char * input) {
         1,
         1
     };
+
     MPI_Cart_create(MPI_COMM_WORLD, 2, lc.grid_dim, period, 1, & lc.grid_comm);
 
     MPI_Cart_coords(lc.grid_comm, lc.world_rank, 2, lc.grid_coords);
@@ -213,7 +214,7 @@ void flat_map() {
         strncpy(words[word_counter], lc.data[0].key + word_start_index, word_size);
         words[word_counter][word_size] = '\0';
         word_counter++;
-        if (word_counter % buffer_size == 0) // full
+        if (word_counter % buffer_size == 0) // full 
             words = (char ** ) realloc(words, 2 * word_counter * sizeof( * words));
     }
 
@@ -229,10 +230,6 @@ void flat_map() {
     }
 
     lc.local_data_len = word_counter;
-
-    // for(i = 0; i < index; i ++)
-    //  printf("%d: %s %d\n", lc.world_rank, lc.data[i].key, lc.data[i].value);
-
     free(words);
 }
 
@@ -559,7 +556,7 @@ void write_file() {
     };
     MPI_Type_create_subarray(1, result_array, local_array, start_from, MPI_ORDER_C, MPI_CHAR, & result_datatype);
     MPI_Type_commit( & result_datatype);
-    MPI_File_open(MPI_COMM_WORLD, "result", MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, & lc.output_file);
+    MPI_File_open(MPI_COMM_WORLD, "result.txt", MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, & lc.output_file);
     MPI_File_set_view(lc.output_file, 0, MPI_CHAR, result_datatype, "native", MPI_INFO_NULL);
     MPI_File_write_all(lc.output_file, result, local_size, MPI_CHAR, MPI_STATUS_IGNORE);
     MPI_File_close( & lc.output_file);
@@ -567,5 +564,5 @@ void write_file() {
     // clean up
     free(result);
     free(lc.data);
-
 }
+

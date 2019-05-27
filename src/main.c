@@ -39,11 +39,14 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
-	read_file(argv[optind]);
 
 	int i;
+
 	for (i = 0; i < repeat; i++){
 		MPI_Barrier(MPI_COMM_WORLD);
+
+		read_file(argv[optind]);
+
 		start_time = MPI_Wtime();
 		// word count
 		flat_map();
@@ -66,6 +69,7 @@ int main(int argc, char *argv[])
 	}
 
 	write_file();
+
 	MPI_Finalize();
 
 	return 0;

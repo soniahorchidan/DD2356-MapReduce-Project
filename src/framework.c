@@ -23,11 +23,6 @@ typedef struct {
 
     // ranks ans sizes
     int world_rank, world_size;
-    int grid_rank;
-    int grid_dim[2]; // split into n x n processes
-    int grid_coords[2];
-    int row_rank, row_size;
-    int col_rank, col_size;
 
     // input size
     long input_len;
@@ -50,14 +45,6 @@ void read_file(char * input) {
     // get world details
     MPI_Comm_rank(MPI_COMM_WORLD, & lc.world_rank);
     MPI_Comm_size(MPI_COMM_WORLD, & lc.world_size);
-
-    //  make sure  world dimensions are square
-    if ((int) sqrt(lc.world_size) != sqrt(lc.world_size)) {
-        printf("Processes size is not square\n");
-        MPI_Abort(MPI_COMM_WORLD, 1);
-    }
-
-    lc.grid_dim[0] = lc.grid_dim[1] = sqrt(lc.world_size);
 
     // read input file size
     if (lc.world_rank == 0) {

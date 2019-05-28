@@ -20,7 +20,6 @@ typedef struct {
 
     // local data
     KeyValue * data;
-    KeyValue input_data;
 
     // communicators
     MPI_Comm grid_comm;
@@ -51,7 +50,7 @@ LocalConfig lc;
 
 void read_file(char * input) {
 
-     lc.max_word_size = 16;
+    lc.max_word_size = 16;
 
     // get world details
     MPI_Comm_rank(MPI_COMM_WORLD, & lc.world_rank);
@@ -72,7 +71,7 @@ void read_file(char * input) {
         MPI_File_get_size(lc.input_file, & size);
         MPI_File_close( & lc.input_file);
         lc.input_len = size - 1; // exclude EOF
-        // printf("Input file contains %ld chars.\n", lc.input_len);
+        printf("Input file contains %ld chars.\n", lc.input_len);
     }
 
     // broadcast input size
@@ -83,7 +82,6 @@ void read_file(char * input) {
         1,
         1
     };
-
     MPI_Cart_create(MPI_COMM_WORLD, 2, lc.grid_dim, period, 1, & lc.grid_comm);
 
     MPI_Cart_coords(lc.grid_comm, lc.world_rank, 2, lc.grid_coords);
@@ -107,7 +105,7 @@ void read_file(char * input) {
 
     // calculate local data size
     lc.offset = 15;
-    int chunk_size = 64; //lc.input_len / lc.world_size;
+    int chunk_size = lc.input_len / lc.world_size;
     int read_len = chunk_size;
     read_len += lc.offset + 1; // +1 for the beginning
 
@@ -120,6 +118,20 @@ void read_file(char * input) {
         read_len -= lc.offset;
         read_len += lc.input_len % lc.world_size;
     }
+    // create subarray datatype
+    int start_from[1] = {
+        lc.world_rank * chunk_size
+    };
+    int array_size[1] = {
+        lc.input_len
+    };
+    int subarray_size[1] = {
+        read_len
+    };
+    if (lc.world_rank != 0) start_from[0] -= 1; //shift array by one char
+
+    MPI_Type_create_subarray(1, array_size, subarray_size, start_from, MPI_ORDER_C, MPI_CHAR, & lc.subarray);
+    MPI_Type_commit( & lc.subarray);
 
     // alloc space for reading
     char *p, *p_dummy;
@@ -127,50 +139,27 @@ void read_file(char * input) {
     if(lc.world_rank == 0){
         p_dummy = (char * ) malloc((read_len+2) * sizeof(char));
         p = &p_dummy[1]; // we save the first slot for a separator
-	p_dummy[0] = ' ';
+    p_dummy[0] = ' ';
         p_dummy[read_len+1] = '\0';
     }else{
         p = (char * ) malloc((read_len+1) * sizeof(char));
         p[read_len] = '\0';
     }
 
-    long num_reads = lc.input_len / (chunk_size * lc.world_size);
-    long remaining = lc.input_len  - num_reads * chunk_size * lc.world_size;
-    long extra_reads = remaining / chunk_size;
-    if(lc.world_rank <= extra_reads) {
-        num_reads ++;
-    }
-
-    MPI_Aint length = chunk_size * sizeof(char);
-    MPI_Offset disp = lc.world_rank * length;
-    MPI_Aint extent = lc.world_size * length;
-    MPI_Datatype contig, filetype;
-
-    MPI_Type_contiguous(read_len, MPI_CHAR, &contig);
-    MPI_Type_create_resized(contig, 0, extent, &filetype);
-    MPI_Type_commit(&filetype);
-
     // read file
     MPI_File_open(MPI_COMM_WORLD, input, MPI_MODE_RDONLY, MPI_INFO_NULL, & lc.input_file);
-    MPI_File_set_view(lc.input_file, disp, MPI_CHAR, filetype, "native", MPI_INFO_NULL);
+    MPI_File_set_view(lc.input_file, 0, MPI_CHAR, lc.subarray, "native", MPI_INFO_NULL);
+    MPI_File_read_all(lc.input_file, p, read_len, MPI_CHAR, MPI_STATUS_IGNORE);
+    MPI_File_close( & lc.input_file);
+
+    if(lc.world_rank == 0) p = p_dummy;
+
+    // printf("Rank %d read: |%s|\n",lc.world_rank ,p);
 
     lc.data = (KeyValue * ) malloc(sizeof(KeyValue));
-    lc.local_data_len = 0;
-
-    int i;
-    
-    for(i = 0; i < num_reads; i ++) {
-          if(i == num_reads - 1) read_len = remaining;
-          MPI_File_read(lc.input_file, p, read_len, MPI_CHAR, MPI_STATUS_IGNORE);
-          if(lc.world_rank == 0) p = p_dummy;
-          // printf("Rank %d read: |%s|\n",lc.world_rank ,p);
-              
-          lc.input_data.key = p;
-          lc.input_data.value = 1;
-          flat_map();
-    }
-
-    MPI_File_close( & lc.input_file);
+    lc.data[0].key = p;
+    lc.data[0].value = 1;
+    lc.local_data_len = 1;
 
 }
 
@@ -181,7 +170,7 @@ int isSep(char c) {
 }
 
 void find_next_word(char * input_buffer, int * read_head, int * word_start_index, int * word_size) {
-    int total_chunk_len = strlen(input_buffer);
+    int total_chunk_len = strlen(lc.data[0].key);
     int chunk_len = total_chunk_len - lc.offset;
     if (lc.world_rank == lc.world_size -1) chunk_len+= lc.offset;
 
@@ -211,35 +200,39 @@ void flat_map() {
     int word_counter = 0;
     int read_head = 0;
 
-    long int chunk_len = strlen(lc.input_data.key) - lc.offset; // remove offset size
+    long int chunk_len = strlen(lc.data[0].key) - lc.offset; // remove offset size
     if(lc.world_rank == lc.world_size -1) chunk_len+= lc.offset; // last chuck has no offset
 
     // skip broken word - if any
-    while(!isSep(lc.input_data.key[read_head]) && read_head < chunk_len) read_head++;
+    while(!isSep(lc.data[0].key[read_head]) && read_head < chunk_len) read_head++;
 
     while (read_head < chunk_len) {
-        find_next_word(lc.input_data.key, &read_head, & word_start_index, & word_size);
+        find_next_word(lc.data[0].key, &read_head, & word_start_index, & word_size);
         if (word_size == 0) break;
         words[word_counter] = (char * ) malloc((word_size + 1) * sizeof(char));
-        strncpy(words[word_counter], lc.input_data.key + word_start_index, word_size);
+        strncpy(words[word_counter], lc.data[0].key + word_start_index, word_size);
         words[word_counter][word_size] = '\0';
         word_counter++;
-        if (word_counter % buffer_size == 0) // full 
+        if (word_counter % buffer_size == 0) // full
             words = (char ** ) realloc(words, 2 * word_counter * sizeof( * words));
     }
 
-    lc.data = (KeyValue * ) realloc(lc.data, (word_counter + lc.local_data_len + 1) * sizeof(KeyValue));
+    lc.data = (KeyValue * ) realloc(lc.data, word_counter * sizeof(KeyValue));
 
     #pragma omp parallel for private(i)
-    for (i = lc.local_data_len; i < lc.local_data_len + word_counter; i++) {
+    for (i = 0; i < word_counter; i++) {
         KeyValue new_kv_pair;
-        new_kv_pair.key = (char * ) malloc(strlen(words[i - lc.local_data_len]) * sizeof(char));
-        strcpy(new_kv_pair.key, words[i - lc.local_data_len]);
+        new_kv_pair.key = (char * ) malloc(strlen(words[i]) * sizeof(char));
+        strcpy(new_kv_pair.key, words[i]);
         new_kv_pair.value = 1;
         lc.data[i] = new_kv_pair;
     }
 
-    lc.local_data_len += word_counter;
+    lc.local_data_len = word_counter;
+
+    // for(i = 0; i < index; i ++)
+    //  printf("%d: %s %d\n", lc.world_rank, lc.data[i].key, lc.data[i].value);
+
     free(words);
 }
 
@@ -458,13 +451,11 @@ void reduce() {
         convert_buckets_into_bytes(buckets[i], sizes[i], & send_bytes[i], & sizes_bytes[i]);
     }
 
-
     int * recv_sizes_bytes = (int * ) calloc(lc.world_size, sizeof(int));
 
     // exchange sizes between processes
     MPI_Alltoall(sizes_bytes, 1, MPI_INT, recv_sizes_bytes, 1, MPI_INT, MPI_COMM_WORLD);
 
-     
     MPI_Request send_requests[lc.world_size];
 
     for (i = 0; i < lc.world_size; i++) {
@@ -474,7 +465,7 @@ void reduce() {
         else if(lc.world_rank / lc.grid_dim[0] == i / lc.grid_dim[0])    //same row
             MPI_Isend(send_bytes[i], sizes_bytes[i], MPI_BYTE, i % lc.grid_dim[0], 0, lc.row_comm, &send_requests[i]);
         else 
-            MPI_Isend(send_bytes[i], sizes_bytes[i], MPI_BYTE, i, 0, lc.grid_comm, &send_requests[i]);
+            MPI_Isend(send_bytes[i], sizes_bytes[i], MPI_BYTE, i, 0, MPI_COMM_WORLD, &send_requests[i]);
     }
 
     char ** recv_bytes = (char ** ) malloc(lc.world_size * sizeof(char * ));
@@ -488,17 +479,17 @@ void reduce() {
         else if(lc.world_rank / lc.grid_dim[0] == i / lc.grid_dim[0])    //same row
             MPI_Irecv(recv_bytes[i], recv_sizes_bytes[i], MPI_BYTE, i % lc.grid_dim[0], 0, lc.row_comm, &recv_requests[i]);
         else 
-            MPI_Irecv(recv_bytes[i], recv_sizes_bytes[i], MPI_BYTE, i, 0, lc.grid_comm, &recv_requests[i]);
+            MPI_Irecv(recv_bytes[i], recv_sizes_bytes[i], MPI_BYTE, i, 0, MPI_COMM_WORLD, &recv_requests[i]);
     }
 
-    // free(lc.data);
-    // lc.local_data_len = 0;
+    lc.data = NULL;
+    lc.local_data_len = 0;
     int index_rec = 0;
     for (i = 0; i < lc.world_size; i ++) {
         // wait for any message to arrive, then merge
         MPI_Waitany(lc.world_size, recv_requests, &index_rec, MPI_STATUS_IGNORE);
         // printf("PROCESS %d RECEIVED FROM PROCESS %d\n", lc.world_rank, index_rec);
-        if(index_rec != lc.world_rank) merge(recv_bytes[index_rec], recv_sizes_bytes[index_rec]);
+        merge(recv_bytes[index_rec], recv_sizes_bytes[index_rec]);
     }
 
     MPI_Waitall(lc.world_size, send_requests, MPI_STATUS_IGNORE);
@@ -568,7 +559,7 @@ void write_file() {
     };
     MPI_Type_create_subarray(1, result_array, local_array, start_from, MPI_ORDER_C, MPI_CHAR, & result_datatype);
     MPI_Type_commit( & result_datatype);
-    MPI_File_open(MPI_COMM_WORLD, "result.txt", MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, & lc.output_file);
+    MPI_File_open(MPI_COMM_WORLD, "result", MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, & lc.output_file);
     MPI_File_set_view(lc.output_file, 0, MPI_CHAR, result_datatype, "native", MPI_INFO_NULL);
     MPI_File_write_all(lc.output_file, result, local_size, MPI_CHAR, MPI_STATUS_IGNORE);
     MPI_File_close( & lc.output_file);
@@ -576,5 +567,5 @@ void write_file() {
     // clean up
     free(result);
     free(lc.data);
-}
 
+}

@@ -39,20 +39,21 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
-
 	int i;
-
 	for (i = 0; i < repeat; i++){
 		MPI_Barrier(MPI_COMM_WORLD);
+		start_time = MPI_Wtime();
 
 		read_file(argv[optind]);
-
-		start_time = MPI_Wtime();
+		
 		// word count
-		// flat_map();
+		flat_map();
 		reduce();
 		
 		MPI_Barrier(MPI_COMM_WORLD);
+
+		write_file();
+
 		end_time = MPI_Wtime();
 
 		if (world_rank == 0) {
@@ -67,8 +68,6 @@ int main(int argc, char *argv[])
 		stddev_runtime = sqrt(stddev_runtime / (repeat - 1));
 		printf("duration\t= %f±%f\n", avg_runtime, stddev_runtime);
 	}
-
-	write_file();
 
 	MPI_Finalize();
 

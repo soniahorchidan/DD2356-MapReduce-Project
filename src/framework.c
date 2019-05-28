@@ -45,7 +45,7 @@ LocalConfig lc;
 
 void read_file(char * input) {
 
-    lc.max_word_size = 16;
+    lc.max_word_size = 3;
 
     // get world details
     MPI_Comm_rank(MPI_COMM_WORLD, & lc.world_rank);
@@ -73,7 +73,7 @@ void read_file(char * input) {
     MPI_Bcast( & lc.input_len, 1, MPI_LONG, 0, MPI_COMM_WORLD);
 
     // calculate local data size
-    lc.offset = 15;
+    lc.offset = lc.max_word_size -1;
     int chunk_size = lc.input_len / lc.world_size;
     int read_len = chunk_size;
     read_len += lc.offset + 1; // +1 for the beginning
@@ -190,11 +190,11 @@ void flat_map() {
 
     #pragma omp parallel for private(i)
     for (i = 0; i < word_counter; i++) {
-        KeyValue new_kv_pair;
-        new_kv_pair.key = (char * ) malloc(strlen(words[i]) * sizeof(char));
-        strcpy(new_kv_pair.key, words[i]);
-        new_kv_pair.value = 1;
-        lc.data[i] = new_kv_pair;
+	int wlen = strlen(words[i]);
+        lc.data[i].key = (char * ) malloc((wlen+1) * sizeof(char));
+        memcpy(lc.data[i].key, words[i], wlen);
+	lc.data[i].key[wlen] = '\0';
+        lc.data[i].value = 1;
     }
 
     lc.local_data_len = word_counter;
@@ -479,7 +479,7 @@ void write_file() {
     // printf("Rank %d will print %d chars\n", lc.world_rank, local_size);
 
     // create local result
-    char * result = (char * ) malloc(local_size * sizeof(char));
+    char * result = (char * ) malloc((local_size+1) * sizeof(char));
     int j = 0;
     for (i = 0; i < lc.local_data_len; i++) {
         // get key value pair
@@ -487,7 +487,8 @@ void write_file() {
         j += sprintf( & result[j], "%s %d\n", kv.key, kv.value);
 
     }
-    // printf("Rank %d result: %s\n\n", lc.world_rank, result);
+    result[j] = '\0';
+    //printf("Rank %d count:%d result: |%s|\n", lc.world_rank, local_size ,result);
 
     // local sizes are distributed across the network
     int proc_size[lc.world_size];

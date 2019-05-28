@@ -50,9 +50,9 @@ int main(int argc, char *argv[])
 		flat_map();
 		reduce();
 		
-		MPI_Barrier(MPI_COMM_WORLD);
-
 		write_file();
+		
+		MPI_Barrier(MPI_COMM_WORLD);
 
 		end_time = MPI_Wtime();
 

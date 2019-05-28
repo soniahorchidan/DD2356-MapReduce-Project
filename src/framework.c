@@ -21,11 +21,6 @@ typedef struct {
     // local data
     KeyValue * data;
 
-    // communicators
-    MPI_Comm grid_comm;
-    MPI_Comm row_comm;
-    MPI_Comm col_comm;
-
     // ranks ans sizes
     int world_rank, world_size;
     int grid_rank;
@@ -76,32 +71,6 @@ void read_file(char * input) {
 
     // broadcast input size
     MPI_Bcast( & lc.input_len, 1, MPI_LONG, 0, MPI_COMM_WORLD);
-
-    // create communicators for NxN processes
-    int period[2] = {
-        1,
-        1
-    };
-    MPI_Cart_create(MPI_COMM_WORLD, 2, lc.grid_dim, period, 1, & lc.grid_comm);
-
-    MPI_Cart_coords(lc.grid_comm, lc.world_rank, 2, lc.grid_coords);
-    MPI_Cart_rank(lc.grid_comm, lc.grid_coords, & lc.grid_rank);
-
-    // Sub div cart communicator to N row communicator
-    int selected_dim[2] = {
-        0,
-        1
-    };
-    MPI_Cart_sub(lc.grid_comm, selected_dim, & lc.row_comm);
-    MPI_Comm_rank(lc.row_comm, & lc.row_rank);
-    MPI_Comm_size(lc.row_comm, & lc.row_size);
-
-    // Sub div cart communicator to N col communicator
-    selected_dim[0] = 1;
-    selected_dim[1] = 0;
-    MPI_Cart_sub(lc.grid_comm, selected_dim, & lc.col_comm);
-    MPI_Comm_rank(lc.col_comm, & lc.col_rank);
-    MPI_Comm_size(lc.col_comm, & lc.col_size);
 
     // calculate local data size
     lc.offset = 15;
@@ -458,15 +427,9 @@ void reduce() {
 
     MPI_Request send_requests[lc.world_size];
 
-    for (i = 0; i < lc.world_size; i++) {
+    for (i = 0; i < lc.world_size; i++) 
         // find the right communicator to send to
-        if(lc.world_rank % lc.grid_dim[0] == i % lc.grid_dim[0])    //same col
-            MPI_Isend(send_bytes[i], sizes_bytes[i], MPI_BYTE, i / lc.grid_dim[0], 0, lc.col_comm, &send_requests[i]);
-        else if(lc.world_rank / lc.grid_dim[0] == i / lc.grid_dim[0])    //same row
-            MPI_Isend(send_bytes[i], sizes_bytes[i], MPI_BYTE, i % lc.grid_dim[0], 0, lc.row_comm, &send_requests[i]);
-        else 
-            MPI_Isend(send_bytes[i], sizes_bytes[i], MPI_BYTE, i, 0, MPI_COMM_WORLD, &send_requests[i]);
-    }
+        MPI_Isend(send_bytes[i], sizes_bytes[i], MPI_BYTE, i, 0, MPI_COMM_WORLD, &send_requests[i]);
 
     char ** recv_bytes = (char ** ) malloc(lc.world_size * sizeof(char * ));
     MPI_Request recv_requests[lc.world_size];
@@ -474,12 +437,7 @@ void reduce() {
     for (i = 0; i < lc.world_size; i++) {
         recv_bytes[i] = (char * ) malloc(recv_sizes_bytes[i] * sizeof(char));
         // find the right communicator to receive from
-        if(lc.world_rank % lc.grid_dim[0] == i % lc.grid_dim[0])    //same col
-            MPI_Irecv(recv_bytes[i], recv_sizes_bytes[i], MPI_BYTE, i / lc.grid_dim[0], 0, lc.col_comm, &recv_requests[i]);
-        else if(lc.world_rank / lc.grid_dim[0] == i / lc.grid_dim[0])    //same row
-            MPI_Irecv(recv_bytes[i], recv_sizes_bytes[i], MPI_BYTE, i % lc.grid_dim[0], 0, lc.row_comm, &recv_requests[i]);
-        else 
-            MPI_Irecv(recv_bytes[i], recv_sizes_bytes[i], MPI_BYTE, i, 0, MPI_COMM_WORLD, &recv_requests[i]);
+        MPI_Irecv(recv_bytes[i], recv_sizes_bytes[i], MPI_BYTE, i, 0, MPI_COMM_WORLD, &recv_requests[i]);
     }
 
     lc.data = NULL;

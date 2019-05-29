@@ -170,7 +170,8 @@ void flat_map() {
         words[word_counter][word_size] = '\0';
         word_counter++;
         if (word_counter % buffer_size == 0) // full
-            words = (char ** ) realloc(words, 2 * word_counter * sizeof( * words));
+            buffer_size *= 2;
+            words = (char ** ) realloc(words, buffer_size * sizeof( * words));
     }
 
     lc.data = (KeyValue * ) realloc(lc.data, word_counter * sizeof(KeyValue));

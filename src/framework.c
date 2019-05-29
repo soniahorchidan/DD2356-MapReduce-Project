@@ -206,7 +206,6 @@ void reduce_local() {
 
     if (lc.local_data_len <= 1) return; // nothing to merge
 
-    int merged = 0; //count how many elements were reduced
     int i, j;
 
     for (i = lc.local_data_len - 1; i > 0; i--) {
@@ -223,7 +222,6 @@ void reduce_local() {
                 free(lc.data[i].key);
                 lc.data[i].key = NULL;
                 lc.data[j].value+= lc.data[i].value;
-                merged++;
                 break;
             }
         }
@@ -395,9 +393,23 @@ void reduce() {
 
     // convert buckets to byte arrays
     for (i = 0; i < lc.world_size; i++) {
-        send_bytes[i] = NULL;
         convert_buckets_into_bytes(buckets[i], sizes[i], & send_bytes[i], & sizes_bytes[i]);
     }
+
+    // free all unnecessary memory
+    for(i = 0; i < lc.local_data_len; i++){
+        if(lc.data[i].key != NULL) {
+            free(lc.data[i].key);
+        }
+    }
+    free(lc.data);
+    lc.data = NULL;
+    lc.local_data_len = 0;
+
+    for (i = 0; i < lc.world_size; i++) {
+        free(buckets[i]);
+    }
+    free(buckets);
 
     int * recv_sizes_bytes = (int * ) calloc(lc.world_size, sizeof(int));
 
@@ -406,20 +418,18 @@ void reduce() {
 
     MPI_Request send_requests[lc.world_size];
 
-    for (i = 0; i < lc.world_size; i++)
+    for (i = 0; i < lc.world_size; i++) {
         MPI_Isend(send_bytes[i], sizes_bytes[i], MPI_BYTE, i, 0, MPI_COMM_WORLD, &send_requests[i]);
+    }
 
     char ** recv_bytes = (char ** ) malloc(lc.world_size * sizeof(char * ));
     MPI_Request recv_requests[lc.world_size];
 
     for (i = 0; i < lc.world_size; i++) {
         recv_bytes[i] = (char * ) malloc(recv_sizes_bytes[i] * sizeof(char));
-        // find the right communicator to receive from
         MPI_Irecv(recv_bytes[i], recv_sizes_bytes[i], MPI_BYTE, i, 0, MPI_COMM_WORLD, &recv_requests[i]);
     }
 
-    lc.data = NULL;
-    lc.local_data_len = 0;
     int index_rec = 0;
     for (i = 0; i < lc.world_size; i ++) {
         // wait for any message to arrive, then merge
@@ -430,12 +440,16 @@ void reduce() {
 
     MPI_Waitall(lc.world_size, send_requests, MPI_STATUS_IGNORE);
  
+    // free remaining pointers
+    for (i = 0; i < lc.world_size; i++) {
+        free(recv_bytes[i]);
+        free(send_bytes[i]);
+    }
     free(recv_bytes);
     free(recv_sizes_bytes);
     free(send_bytes);
     free(sizes_bytes);
     free(sizes);
-    free(buckets);
 }
 
 void write_file() {

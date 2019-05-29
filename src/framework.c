@@ -125,9 +125,8 @@ int isSep(char c) {
     return !isdigit(c) && !isalpha(c);
 }
 
-void find_next_word(char * input_buffer, int * read_head, int * word_start_index, int * word_size) {
-    int total_chunk_len = strlen(lc.data[0].key);
-    int chunk_len = total_chunk_len - lc.offset;
+void find_next_word(char * input_buffer, int input_size, int * read_head, int * word_start_index, int * word_size) {
+    int chunk_len = input_size - lc.offset;
     if (lc.world_rank == lc.world_size -1) chunk_len+= lc.offset;
 
     while (isSep(input_buffer[*read_head]) && *read_head < chunk_len) (*read_head)++;
@@ -140,7 +139,7 @@ void find_next_word(char * input_buffer, int * read_head, int * word_start_index
     do{
         (*word_size)++;
         (*read_head)++;
-    }while( (*word_size < lc.max_word_size) && !isSep(input_buffer[*read_head]) && (*read_head < total_chunk_len));
+    }while( (*word_size < lc.max_word_size) && !isSep(input_buffer[*read_head]) && (*read_head < input_size));
     while(!isSep(input_buffer[*read_head]) && *read_head < chunk_len) (*read_head)++;
 }
 
@@ -164,7 +163,7 @@ void flat_map() {
     while(!isSep(lc.data[0].key[read_head]) && read_head < chunk_len) read_head++;
 
     while (read_head < chunk_len) {
-        find_next_word(lc.data[0].key, &read_head, & word_start_index, & word_size);
+        find_next_word(lc.data[0].key, input_size, &read_head, & word_start_index, & word_size);
         if (word_size == 0) break;
         words[word_counter] = (char * ) malloc((word_size + 1) * sizeof(char));
         strncpy(words[word_counter], lc.data[0].key + word_start_index, word_size);

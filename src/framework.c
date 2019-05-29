@@ -186,8 +186,8 @@ void flat_map() {
 
     lc.local_data_len = word_counter;
 
-    // for(i = 0; i < index; i ++)
-    //  printf("%d: %s %d\n", lc.world_rank, lc.data[i].key, lc.data[i].value);
+    // for(i = 0; i < word_counter; i ++)
+    //  printf("%d: |%s| %d\n", lc.world_rank, lc.data[i].key, strlen(lc.data[i].key));
 
     free(words);
 }
@@ -286,7 +286,7 @@ void merge(char * recv, int recv_size) {
                     ((recv[i+2] & 0x000000ff) << 16)|
                     ((recv[i+3] & 0x000000ff) << 24);
 
-        //if (lc.world_rank == 0)printf("entry: |%s|, %d\n", buffer, value);
+        //printf("entry: |%s|, %d\n", buffer, value);
 
         // try to merge with local bucket
         int merged = 0;
@@ -295,8 +295,7 @@ void merge(char * recv, int recv_size) {
                 // merge
                 lc.data[k].value += value;
                 // set value to -1
-                recv[i] = -1;
-                recv[i + 1] = recv[i + 2] = recv[i + 3] = 0;
+                recv[i] = recv[i + 1] = recv[i + 2] = recv[i + 3] = 0;
 
                 merged = 1;
                 break;
@@ -341,9 +340,9 @@ void merge(char * recv, int recv_size) {
                     ((recv[i+2] & 0x000000ff) << 16)|
                     ((recv[i+3] & 0x000000ff) << 24);
 
-        if (value != -1) {
+        if (value > 0) {
             char * array = (char * ) malloc(j);
-            memcpy(array, buffer, j);
+            strncpy(array, buffer, j);
             merged[l].key = array;
             merged[l].value = value;
             l++;
@@ -358,10 +357,11 @@ void merge(char * recv, int recv_size) {
 }
 
 void reduce() {
+    
+    int i;
 
     // local reduce
     reduce_local();
-    int i;
 
     // initialize bucket sizes
     int bucket_size[lc.world_size];
@@ -444,7 +444,7 @@ void reduce() {
     }
 
     MPI_Waitall(lc.world_size, send_requests, MPI_STATUS_IGNORE);
- 
+
     // free remaining pointers
     for (i = 0; i < lc.world_size; i++) {
         free(recv_bytes[i]);
@@ -455,12 +455,13 @@ void reduce() {
     free(send_bytes);
     free(sizes_bytes);
     free(sizes);
+
 }
 
 void write_file() {
-    //calculate local size
-    int local_size = 0;
+
     int i;
+    int local_size = 0;
     for (i = 0; i < lc.local_data_len; i++) {
         KeyValue kv = lc.data[i];
         // size of string

@@ -204,7 +204,7 @@ unsigned long hash(char * str) {
 
 void reduce_local() {
 
-    if (lc.local_data_len == 1) return; // nothing to merge
+    if (lc.local_data_len <= 1) return; // nothing to merge
 
     int merged = 0; //count how many elements were reduced
     int i, j;
@@ -222,13 +222,14 @@ void reduce_local() {
             if (s1 == s2 && memcmp(lc.data[i].key, lc.data[j].key, s1) == 0) {
                 free(lc.data[i].key);
                 lc.data[i].key = NULL;
-                lc.data[j].value++;
+                lc.data[j].value+= lc.data[i].value;
                 merged++;
                 break;
             }
         }
     }
 
+    if(merged == 0) return;
     // copy to new bucket
     j = 0;
     KeyValue * new_data = (KeyValue * ) malloc((lc.local_data_len - merged) * sizeof(KeyValue));
@@ -245,48 +246,37 @@ void reduce_local() {
     lc.local_data_len -= merged;
 }
 
-void string_to_byte_array(char * input, char * output) {
-    int loop = 0;
-    int i = 0;
-    while (input[loop] != '\0') {
-        output[i++] = input[loop++];
-    }
-}
-
-void int_to_byte_array(int input, char * output) {
-    output[3] = (input >> 24) & 0xFF;
-    output[2] = (input >> 16) & 0xFF;
-    output[1] = (input >> 8) & 0xFF;
-    output[0] = input & 0xFF;
-}
-
 void convert_buckets_into_bytes(KeyValue * bucket, int bucket_size, char ** bytes, int * bytes_size) {
-    int i;
-    * bytes_size = 0;
+
+    int i,j;
+    *bytes_size = 0;
 
     for (i = 0; i < bucket_size; i++) {
-        char * key = (char * ) malloc(strlen(bucket[i].key) * sizeof(char));
-        string_to_byte_array(bucket[i].key, key);
+        *bytes_size += strlen(bucket[i].key) + 5; // 1 for space, 4 for int
+    }
 
-        char * value = (char * ) malloc(sizeof(bucket[i].value) * sizeof(char));
-        int_to_byte_array(bucket[i].value, value);
+    if (*bytes_size == 0){
+        *bytes = NULL;
+        return;
+    }
 
-        int current_size = strlen(bucket[i].key) + sizeof(bucket[i].value) + 1;
+    *bytes = (char * ) malloc( (*bytes_size) * sizeof(char));
 
-        char b[current_size * sizeof(char) + 1];
-        b[0] = '\0';
-        strcat(b, key);
-
-        b[strlen(bucket[i].key)] = '\0';
-        memcpy(b + strlen(bucket[i].key) + 1, value, sizeof(int));
-
-        free(key);
-        free(value);
-
-        * bytes = (char * ) realloc( * bytes, ( * bytes_size + current_size) * sizeof(char));
-        memcpy( * bytes + * bytes_size, b, current_size);
-        * bytes_size += current_size;
-
+    j = 0;
+    for (i = 0; i < bucket_size; i++) {
+        int str_size = strlen(bucket[i].key);
+        strncpy(*bytes + j, bucket[i].key, str_size);
+        j+= str_size;
+        (*bytes)[j] = '\0';
+        j++;
+        (*bytes)[j] = (bucket[i].value) & 0xFF;
+        j++;
+        (*bytes)[j] = (bucket[i].value>>8) & 0xF;
+        j++;
+        (*bytes)[j] = (bucket[i].value>>16) & 0xFF;
+        j++;
+        (*bytes)[j] = (bucket[i].value>>24) & 0xFF;
+        j++;
     }
 }
 
@@ -414,8 +404,7 @@ void reduce() {
 
     MPI_Request send_requests[lc.world_size];
 
-    for (i = 0; i < lc.world_size; i++) 
-        // find the right communicator to send to
+    for (i = 0; i < lc.world_size; i++)
         MPI_Isend(send_bytes[i], sizes_bytes[i], MPI_BYTE, i, 0, MPI_COMM_WORLD, &send_requests[i]);
 
     char ** recv_bytes = (char ** ) malloc(lc.world_size * sizeof(char * ));

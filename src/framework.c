@@ -330,14 +330,13 @@ void merge(char * recv, int recv_size) {
             j++;
         }
         i++; // for '\0'
-        buffer[j] = '\0';
-        j++;
 
         // read value
         int value = recv[i] | recv[i + 1] << 8 | recv[i + 2] << 16 | recv[i + 3] << 24;
         if (value != -1) {
-            char * array = (char * ) malloc(j);
+            char * array = (char * ) malloc(j+1);
             memcpy(array, buffer, j);
+            array[j] = '\0';
             merged[l].key = array;
             merged[l].value = value;
             l++;

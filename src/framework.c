@@ -463,6 +463,7 @@ void write_file() {
         // space and newline
         local_size += 2;
     }
+    if(local_size==0) local_size++;
     // printf("Rank %d will print %d chars\n", lc.world_rank, local_size);
 
     // create local result
@@ -475,6 +476,11 @@ void write_file() {
 
     }
     result[j] = '\0';
+
+    if(local_size==1) {
+        result[0] = '\n';
+        result[1] = '\0';
+    }
     //printf("Rank %d count:%d result: |%s|\n", lc.world_rank, local_size ,result);
 
     // local sizes are distributed across the network

@@ -40,7 +40,7 @@ LocalConfig lc;
 
 void read_file(char * input) {
 
-    lc.max_word_size = 3;
+    lc.max_word_size = 16;
 
     // get world details
     MPI_Comm_rank(MPI_COMM_WORLD, & lc.world_rank);
@@ -63,30 +63,31 @@ void read_file(char * input) {
     lc.offset = lc.max_word_size -1;
     int chunk_size = lc.input_len / lc.world_size;
     int read_len = chunk_size;
-    read_len += lc.offset + 1; // +1 for the beginning
 
-    // first process cannot read offset at the beginning of file
-    if (lc.world_rank == 0) read_len -= 1;
+    // last process reads trailing chars - size: [0, lc.world_size)
+    if(lc.world_rank == lc.world_size -1) read_len += lc.input_len % lc.world_size;
 
-    // last process cannot read offset at the end of file
-    // it should also read any remaining bytes
-    if (lc.world_rank == lc.world_size - 1) {
-        read_len -= lc.offset;
-        read_len += lc.input_len % lc.world_size;
+    //all processes except the first one read one extra byte in the beginning
+    if(lc.world_rank != 0) read_len += 1;
+
+    // all processes except the last one read max_word_size-1 chars in the end
+
+    if (lc.world_rank != lc.world_size - 1) {
+        read_len += lc.offset;
     }
-    // create subarray datatype
-    int start_from[1] = {
-        lc.world_rank * chunk_size
-    };
-    int array_size[1] = {
-        lc.input_len
-    };
-    int subarray_size[1] = {
-        read_len
-    };
-    if (lc.world_rank != 0) start_from[0] -= 1; //shift array by one char
 
-    MPI_Type_create_subarray(1, array_size, subarray_size, start_from, MPI_ORDER_C, MPI_CHAR, & lc.subarray);
+    // create subarray datatype
+    int array_size[2] = {
+        lc.world_size+1, chunk_size
+    };
+    int start_from[2] = {
+        lc.world_rank==0? lc.world_rank : lc.world_rank-1, 0
+    };
+    int subarray_size[2] = {
+        lc.world_rank==0? 2 : 3, chunk_size
+    };
+
+    MPI_Type_create_subarray(2, array_size, subarray_size, start_from, MPI_ORDER_C, MPI_CHAR, & lc.subarray);
     MPI_Type_commit( & lc.subarray);
 
     // alloc space for reading
@@ -95,22 +96,23 @@ void read_file(char * input) {
     if(lc.world_rank == 0){
         p_dummy = (char * ) malloc((read_len+2) * sizeof(char));
         p = &p_dummy[1]; // we save the first slot for a separator
-    p_dummy[0] = ' ';
+        p_dummy[0] = ' ';
         p_dummy[read_len+1] = '\0';
     }else{
         p = (char * ) malloc((read_len+1) * sizeof(char));
         p[read_len] = '\0';
     }
 
+    int offset = lc.world_rank == 0? 0: chunk_size -1;
     // read file
     MPI_File_open(MPI_COMM_WORLD, input, MPI_MODE_RDONLY, MPI_INFO_NULL, & lc.input_file);
-    MPI_File_set_view(lc.input_file, 0, MPI_CHAR, lc.subarray, "native", MPI_INFO_NULL);
+    MPI_File_set_view(lc.input_file, offset, MPI_CHAR, lc.subarray, "native", MPI_INFO_NULL);
     MPI_File_read_all(lc.input_file, p, read_len, MPI_CHAR, MPI_STATUS_IGNORE);
     MPI_File_close( & lc.input_file);
 
     if(lc.world_rank == 0) p = p_dummy;
 
-    // printf("Rank %d read: |%s|\n",lc.world_rank ,p);
+    //printf("Rank %d read: |%s|\n",lc.world_rank ,p);
 
     lc.data = (KeyValue * ) malloc(sizeof(KeyValue));
     lc.data[0].key = p;
@@ -120,8 +122,6 @@ void read_file(char * input) {
 }
 
 int isSep(char c) {
-    //char *separators = ".,;:\"'()[]{}<>/?!\"\\\n ";
-    // return strchr(separators, c) != NULL ? 1 : 0;
     return !isdigit(c) && !isalpha(c);
 }
 

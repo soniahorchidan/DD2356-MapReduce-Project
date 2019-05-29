@@ -228,22 +228,6 @@ void reduce_local() {
             }
         }
     }
-
-    if(merged == 0) return;
-    // copy to new bucket
-    j = 0;
-    KeyValue * new_data = (KeyValue * ) malloc((lc.local_data_len - merged) * sizeof(KeyValue));
-    for (i = 0; i < lc.local_data_len; i++) {
-        if (lc.data[i].key != NULL) {
-            new_data[j].key = lc.data[i].key;
-            new_data[j].value = lc.data[i].value;
-            j++;
-        }
-    }
-
-    free(lc.data);
-    lc.data = new_data;
-    lc.local_data_len -= merged;
 }
 
 void convert_buckets_into_bytes(KeyValue * bucket, int bucket_size, char ** bytes, int * bytes_size) {
@@ -374,18 +358,36 @@ void reduce() {
     // local reduce
     reduce_local();
 
-    KeyValue ** buckets = (KeyValue ** ) malloc(lc.world_size * sizeof(KeyValue * ));
     int i;
-    for (i = 0; i < lc.world_size; i++)
-        buckets[i] = (KeyValue * ) malloc(sizeof(KeyValue));
 
+    // initialize bucket sizes
+    int bucket_size[lc.world_size];
+    for(i = 0; i < lc.world_size; i++) {
+        bucket_size[i] = 0;
+    }
+
+    // find size of each bucket
+    for(i = 0; i < lc.local_data_len; i++) {
+        if(lc.data[i].key != NULL) {
+            unsigned long word_hash = hash(lc.data[i].key);
+            int receiver = word_hash % lc.world_size;
+            bucket_size[receiver]++;
+        }
+    }
+
+    // allocate memory for each bucket
+    KeyValue ** buckets = (KeyValue ** ) malloc(lc.world_size * sizeof(KeyValue * ));
+    for (i = 0; i < lc.world_size; i++) {
+        buckets[i] = (KeyValue * ) malloc(bucket_size[i] * sizeof(KeyValue));
+    }
     // find buckets
     int * sizes = (int * ) calloc(lc.world_size, sizeof(int));
     for (i = 0; i < lc.local_data_len; i++) {
-        unsigned long word_hash = hash(lc.data[i].key);
-        int receiver = word_hash % lc.world_size;
-        buckets[receiver][sizes[receiver]++] = lc.data[i];
-        buckets[receiver] = (KeyValue * ) realloc(buckets[receiver], (sizes[receiver] + 1) * sizeof(KeyValue));
+        if(lc.data[i].key != NULL) {
+            unsigned long word_hash = hash(lc.data[i].key);
+            int receiver = word_hash % lc.world_size;
+            buckets[receiver][sizes[receiver]++] = lc.data[i];
+        }
     }
 
     int * sizes_bytes = (int * ) calloc(lc.world_size, sizeof(int));

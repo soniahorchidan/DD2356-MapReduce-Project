@@ -16,7 +16,6 @@ int main(int argc, char *argv[])
 	int repeat = 1;
 
 	double avg_runtime = 0.0, prev_avg_runtime = 0.0, stddev_runtime = 0.0;
-	double start_time, end_time;
 
 	MPI_Init(&argc, &argv);
 	MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
@@ -40,28 +39,41 @@ int main(int argc, char *argv[])
 	}
 
 	int i;
+	double start,read,map,red,write,end;
 	for (i = 0; i < repeat; i++){
-		MPI_Barrier(MPI_COMM_WORLD);
-		start_time = MPI_Wtime();
 
+		MPI_Barrier(MPI_COMM_WORLD);
+		start = MPI_Wtime();
+
+		// READ
 		read_file(argv[optind]);
+		read = MPI_Wtime();
+                printf("Rank %d: READ completed in %.2f seconds\n", world_rank, (read-start));
 		
-		// word count
+		// MAP
 		flat_map();
+		map = MPI_Wtime();
+		printf("Rank %d: MAP completed in %.2f seconds\n", world_rank, (map-read));
+
+		// REDUCE
 		reduce();
+		red = MPI_Wtime();
+		printf("Rank %d: REDUCE completed in %.2f seconds\n", world_rank, (red-map));
 		
+		// WRITE
 		write_file();
-		
+		write = MPI_Wtime();
+		printf("Rank %d: WRITE completed in %.2f seconds\n", world_rank, (write-red));
+
 		MPI_Barrier(MPI_COMM_WORLD);
-
-		end_time = MPI_Wtime();
-
+		end = MPI_Wtime();
+		
 		if (world_rank == 0) {
-			printf("run %d: %f s\n", i, end_time - start_time);
+			printf("run %d: %f s\n", i, end - start);
 		}
 		prev_avg_runtime = avg_runtime;
-		avg_runtime = avg_runtime + ( (end_time - start_time) - avg_runtime ) / (i + 1);
-		stddev_runtime = stddev_runtime + ( (end_time - start_time) - avg_runtime) * ( (end_time - start_time) - prev_avg_runtime);
+		avg_runtime = avg_runtime + ( (end - start) - avg_runtime ) / (i + 1);
+		stddev_runtime = stddev_runtime + ( (end - start) - avg_runtime) * ( (end - start) - prev_avg_runtime);
 	}
 
 	if (world_rank == 0) {

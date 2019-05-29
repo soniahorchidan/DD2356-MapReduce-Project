@@ -207,7 +207,6 @@ void reduce_local() {
     if (lc.local_data_len <= 1) return; // nothing to merge
 
     int i, j;
-
     for (i = lc.local_data_len - 1; i > 0; i--) {
 
         int s1 = strlen(lc.data[i].key);
@@ -251,13 +250,13 @@ void convert_buckets_into_bytes(KeyValue * bucket, int bucket_size, char ** byte
         j+= str_size;
         (*bytes)[j] = '\0';
         j++;
-        (*bytes)[j] = (bucket[i].value) & 0xFF;
+        (*bytes)[j] = bucket[i].value & 0x000000ff;
         j++;
-        (*bytes)[j] = (bucket[i].value>>8) & 0xF;
+        (*bytes)[j] = (bucket[i].value & 0x0000ff00) >> 8;
         j++;
-        (*bytes)[j] = (bucket[i].value>>16) & 0xFF;
+        (*bytes)[j] = (bucket[i].value & 0x00ff0000) >> 16;
         j++;
-        (*bytes)[j] = (bucket[i].value>>24) & 0xFF;
+        (*bytes)[j] = (bucket[i].value & 0xff000000) >> 24;
         j++;
     }
 }
@@ -282,7 +281,10 @@ void merge(char * recv, int recv_size) {
         buffer[j] = '\0';
 
         // read value
-        int value = recv[i] | recv[i + 1] << 8 | recv[i + 2] << 16 | recv[i + 3] << 24;
+        int value = (recv[i] & 0x000000ff) | 
+                    ((recv[i+1] & 0x000000ff) << 8) |
+                    ((recv[i+2] & 0x000000ff) << 16)|
+                    ((recv[i+3] & 0x000000ff) << 24);
 
         //if (lc.world_rank == 0)printf("entry: |%s|, %d\n", buffer, value);
 
@@ -334,7 +336,11 @@ void merge(char * recv, int recv_size) {
         j++;
 
         // read value
-        int value = recv[i] | recv[i + 1] << 8 | recv[i + 2] << 16 | recv[i + 3] << 24;
+        int value = (recv[i] & 0x000000ff) |
+                    ((recv[i+1] & 0x000000ff) << 8) |
+                    ((recv[i+2] & 0x000000ff) << 16)|
+                    ((recv[i+3] & 0x000000ff) << 24);
+
         if (value != -1) {
             char * array = (char * ) malloc(j);
             memcpy(array, buffer, j);
@@ -355,7 +361,6 @@ void reduce() {
 
     // local reduce
     reduce_local();
-
     int i;
 
     // initialize bucket sizes

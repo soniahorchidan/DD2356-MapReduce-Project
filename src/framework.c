@@ -155,8 +155,9 @@ void flat_map() {
     int i;
     int word_counter = 0;
     int read_head = 0;
+    int input_size = strlen(lc.data[0].key);
 
-    long int chunk_len = strlen(lc.data[0].key) - lc.offset; // remove offset size
+    long int chunk_len = input_size - lc.offset; // remove offset size
     if(lc.world_rank == lc.world_size -1) chunk_len+= lc.offset; // last chuck has no offset
 
     // skip broken word - if any
@@ -169,19 +170,18 @@ void flat_map() {
         strncpy(words[word_counter], lc.data[0].key + word_start_index, word_size);
         words[word_counter][word_size] = '\0';
         word_counter++;
-        if (word_counter % buffer_size == 0) // full
+        if (word_counter == buffer_size) // full
             buffer_size *= 2;
             words = (char ** ) realloc(words, buffer_size * sizeof( * words));
     }
 
-    lc.data = (KeyValue * ) realloc(lc.data, word_counter * sizeof(KeyValue));
+    free(lc.data[0].key);
+    free(lc.data);
+    lc.data = (KeyValue * ) malloc(word_counter * sizeof(KeyValue));
 
     #pragma omp parallel for private(i)
     for (i = 0; i < word_counter; i++) {
-	int wlen = strlen(words[i]);
-        lc.data[i].key = (char * ) malloc((wlen+1) * sizeof(char));
-        memcpy(lc.data[i].key, words[i], wlen);
-	lc.data[i].key[wlen] = '\0';
+	lc.data[i].key = words[i];
         lc.data[i].value = 1;
     }
 

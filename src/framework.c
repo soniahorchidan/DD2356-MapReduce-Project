@@ -47,7 +47,7 @@ typedef struct {
 }
 LocalConfig;
 
-LocalConfig lc = {.chunk_size = 5, .max_word_size = 2};
+LocalConfig lc = {.chunk_size = 67108864, .max_word_size = 16};
 
 // local functions definitions
 void read_chunk();
@@ -75,11 +75,11 @@ void read_file(char * path_to_file) {
 
     lc.big_bucket_size = 0;
     lc.offset = lc.max_word_size -1;
-    lc.total_iterations = lc.input_file_len / (lc.chunk_size * lc.world_size);
-    lc.total_iterations += (lc.input_file_len % (lc.chunk_size * lc.world_size)== 0)? 0 : 1;
     lc.iteration_counter = 0;
     lc.rows = lc.input_file_len / lc.chunk_size;
     lc.rows += (lc.input_file_len % lc.chunk_size== 0)? 0 : 1;
+    lc.total_iterations = lc.rows / lc.world_size;
+    lc.total_iterations += (lc.rows % lc.world_size == 0)? 0 : 1;
 
     if(lc.world_rank == 0) {
         printf("Number of iterations: %d.\n", lc.total_iterations);
@@ -114,6 +114,13 @@ void read_chunk() {
         read_len = 1 + (lc.input_file_len % lc.chunk_size);
         if(read_len == 1) read_len+= lc.chunk_size;
     }
+    
+    // the second last process in the last round should read the remaining bytes, not l.offset
+    if((lc.iteration_counter == lc.total_iterations-1) && (last_chunk_read_by != 0) && (lc.world_rank == last_chunk_read_by -1)){
+        int rem = lc.input_file_len % lc.chunk_size;
+        read_len -= lc.offset;
+        read_len += (((lc.offset)<(rem))?(lc.offset):(rem));
+    }
 
     // create subarray datatype
     int array_size[2] = {
@@ -142,7 +149,6 @@ void read_chunk() {
     }
 
     if(lc.iteration_counter > 0) {
-        if(lc.world_rank == 0) printf("removed datatype %d\n", lc.iteration_counter);
         MPI_Type_free(&lc.read_type);
     }
     MPI_Type_create_subarray(2, array_size, subarray_size, start_from, MPI_ORDER_C, MPI_CHAR, & lc.read_type);
@@ -174,7 +180,7 @@ void read_chunk() {
 
     lc.iteration_counter++;
 
-    printf("Iter:%d Rank:%d read: |%s|\n",lc.iteration_counter,lc.world_rank ,p);
+    //printf("Iter:%d Rank:%d read: |%s|\n",lc.iteration_counter,lc.world_rank ,p);
 
     if(should_not_read){
         free(p);

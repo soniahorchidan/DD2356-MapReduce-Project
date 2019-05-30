@@ -708,4 +708,5 @@ void local_reduce(KeyValue *bucket, int size, int *new_size) {
     }
 
     *new_size = current;
+    bucket = (KeyValue *)realloc(bucket, *new_size * sizeof(KeyValue));
 }

@@ -682,3 +682,30 @@ KeyValue * merge_bucket_with_byte_array(KeyValue *bucket, int num_buckets, char 
     merged = (KeyValue *)realloc(merged, *size * sizeof(KeyValue));
     return merged;
 }
+
+
+void local_reduce(KeyValue *bucket, int size, int *new_size) {
+    // reduce sorted bucket
+    
+    int i = 0;          // iterate the bucket
+    int current = 0;    // keep last index reduced
+
+    while(i < size) {
+        int j = i + 1;
+        int current_word_size = strlen(bucket[i].key);
+        while(j < size && current_word_size == strlen(bucket[j].key)   
+            && memcmp(bucket[i].key, bucket[j].key, current_word_size) == 0) {
+            bucket[i].value += bucket[j].value;
+            bucket[j].key = NULL;
+            j ++;
+        }
+        if(i != current && bucket[i].key != NULL) {
+            bucket[current] = bucket[i];
+            bucket[i].key = NULL; 
+        }
+        i = j;
+        current ++;
+    }
+
+    *new_size = current;
+}

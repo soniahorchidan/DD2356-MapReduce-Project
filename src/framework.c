@@ -32,15 +32,15 @@ typedef struct {
     int offset;
     // max word size
     int max_word_size;
+    // chunk size per iteration
+    int iter_size;
 
 }
 LocalConfig;
 
-LocalConfig lc;
+LocalConfig lc = {.iter_size = 100, .max_word_size = 16};
 
 void read_file(char * input) {
-
-    lc.max_word_size = 16;
 
     // get world details
     MPI_Comm_rank(MPI_COMM_WORLD, & lc.world_rank);

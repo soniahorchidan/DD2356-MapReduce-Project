@@ -13,15 +13,16 @@ KeyValue;
 typedef struct {
 
     // input, output files
+    char* filename;
     MPI_File input_file, output_file;
 
     // Datatype for reading/writing
-	MPI_Datatype read_type;
+    MPI_Datatype read_type;
     MPI_Datatype write_type;
 
     // local data
     KeyValue * big_bucket;
-	KeyValue * small_bucket;
+    KeyValue * small_bucket;
 
     // ranks and sizes
     int world_rank, world_size;
@@ -30,20 +31,30 @@ typedef struct {
     long input_file_len;
     //local sizes
     long big_bucket_size;
-	long small_bucket_size;
+    long small_bucket_size;
     // number of extra chars to read in the end of array
     int offset;
     // max word size
     int max_word_size;
     // chunk size per iteration
-    int iter_size;
-
+    int chunk_size;
+    // iteration counter
+    int iteration_counter;
+    // number of iterations until finish
+    int total_iterations;
+    // number of rows in the input matrix
+    int rows;
 }
 LocalConfig;
 
-LocalConfig lc = {.iter_size = 100, .max_word_size = 16};
+LocalConfig lc = {.chunk_size = 5, .max_word_size = 2};
 
-void read_file(char * input) {
+// local functions definitions
+void read_chunk();
+
+void read_file(char * path_to_file) {
+
+    lc.filename = path_to_file;
 
     // get world details
     MPI_Comm_rank(MPI_COMM_WORLD, & lc.world_rank);
@@ -51,7 +62,7 @@ void read_file(char * input) {
 
     // read input file size
     if (lc.world_rank == 0) {
-        MPI_File_open(MPI_COMM_SELF, input, MPI_MODE_RDONLY, MPI_INFO_NULL, & lc.input_file);
+        MPI_File_open(MPI_COMM_SELF, lc.filename, MPI_MODE_RDONLY, MPI_INFO_NULL, & lc.input_file);
         MPI_Offset size;
         MPI_File_get_size(lc.input_file, & size);
         MPI_File_close( & lc.input_file);
@@ -62,41 +73,74 @@ void read_file(char * input) {
     // broadcast input size
     MPI_Bcast( & lc.input_file_len, 1, MPI_LONG, 0, MPI_COMM_WORLD);
 
-    // calculate local data size
+    lc.big_bucket_size = 0;
     lc.offset = lc.max_word_size -1;
-    int chunk_size = lc.input_file_len / lc.world_size;
-    int read_len = chunk_size;
+    lc.total_iterations = lc.input_file_len / (lc.chunk_size * lc.world_size);
+    lc.total_iterations = (lc.input_file_len % (lc.chunk_size * lc.world_size)== 0)? 0 : 1;
+    lc.iteration_counter = 0;
+    lc.rows = lc.input_file_len / lc.chunk_size;
+    lc.rows += (lc.input_file_len % lc.chunk_size== 0)? 0 : 1;
 
-    // last process reads trailing chars - size: [0, lc.world_size)
-    if(lc.world_rank == lc.world_size -1) read_len += lc.input_file_len % lc.world_size;
+    if(lc.world_rank == 0) {
+        printf("Number of iterations:%d", lc.total_iterations);
+    }
+    int i;
+    for(i = 0; i < lc.total_iterations -1; i++)
+    read_chunk(); // reads a chunk into small bucket
+}
 
-    //all processes except the first one read one extra byte in the beginning
-    if(lc.world_rank != 0) read_len += 1;
+void read_chunk() {
 
-    // all processes except the last one read max_word_size-1 chars in the end
+    // calculate local data size
+    int read_len = lc.chunk_size + lc.max_word_size;
 
-    if (lc.world_rank != lc.world_size - 1) {
-        read_len += lc.offset;
+    // first round, first process
+    int frfp = (lc.iteration_counter == 0) && (lc.world_rank == 0);
+    int last_chunk_read_by = (lc.rows % lc.world_size) -1;
+    if(last_chunk_read_by == -1) last_chunk_read_by = lc.world_size -1;
+    // last round, last process (this is not world_size -1 )
+    int lrlp = (lc.iteration_counter== lc.total_iterations) && (last_chunk_read_by == lc.world_rank);
+    // if proc should read at last round
+    int should_read_last_round = (lc.iteration_counter== lc.total_iterations) && (last_chunk_read_by < lc.world_rank);
+
+    // first process in first round cannot read one byte from prev chunk
+    if(frfp) {
+        read_len -=1;
+    }
+
+    // last process in the last round
+    if(lrlp){
+        read_len -= lc.offset;
+        read_len += lc.input_file_len % lc.chunk_size;
     }
 
     // create subarray datatype
     int array_size[2] = {
-        lc.world_size+1, chunk_size
+        lc.rows, lc.chunk_size
     };
     int start_from[2] = {
-        lc.world_rank==0? lc.world_rank : lc.world_rank-1, 0
+        (frfp? lc.world_rank : lc.world_rank-1)+(lc.iteration_counter*lc.world_size), 0
     };
     int subarray_size[2] = {
-        lc.world_rank==0? 2 : 3, chunk_size
+        (frfp? 2 : 3), lc.chunk_size
     };
 
+    if(!(should_read_last_round)) { //there is nothing to read
+        // dummy values
+        start_from[0] = 0;
+        read_len = 1;
+    }
+
+    if(lc.iteration_counter > 0) {
+        MPI_Type_free(&lc.read_type);
+    }
     MPI_Type_create_subarray(2, array_size, subarray_size, start_from, MPI_ORDER_C, MPI_CHAR, & lc.read_type);
-    MPI_Type_commit( & lc.read_type);
+    MPI_Type_commit(&lc.read_type);
 
     // alloc space for reading
     char *p, *p_dummy;
 
-    if(lc.world_rank == 0){
+    if(frfp){
         p_dummy = (char * ) malloc((read_len+2) * sizeof(char));
         p = &p_dummy[1]; // we save the first slot for a separator
         p_dummy[0] = ' ';
@@ -106,22 +150,24 @@ void read_file(char * input) {
         p[read_len] = '\0';
     }
 
-    int offset = lc.world_rank == 0? 0: chunk_size -1;
+    int offset = frfp? 0: lc.chunk_size -1;
     // read file
-    MPI_File_open(MPI_COMM_WORLD, input, MPI_MODE_RDONLY, MPI_INFO_NULL, & lc.input_file);
+    MPI_File_open(MPI_COMM_WORLD, lc.filename, MPI_MODE_RDONLY, MPI_INFO_NULL, & lc.input_file);
     MPI_File_set_view(lc.input_file, offset, MPI_CHAR, lc.read_type, "native", MPI_INFO_NULL);
     MPI_File_read_all(lc.input_file, p, read_len, MPI_CHAR, MPI_STATUS_IGNORE);
     MPI_File_close( & lc.input_file);
 
-    if(lc.world_rank == 0) p = p_dummy;
+    if(frfp) {
+        p = p_dummy;
+    }
 
-    //printf("Rank %d read: |%s|\n",lc.world_rank ,p);
+    lc.iteration_counter++;
 
+    printf("Iter:%d Rank:%d read: |%s|\n",lc.iteration_counter,lc.world_rank ,p);
     lc.small_bucket = (KeyValue * ) malloc(sizeof(KeyValue));
     lc.small_bucket[0].key = p;
     lc.small_bucket[0].value = 1;
     lc.small_bucket_size = 1;
-
 }
 
 int isSep(char c) {

@@ -580,6 +580,8 @@ void write_file() {
 }
 
 
+// ------------------------------------ new functions
+
 int compare (const void * a, const void * b) {
   KeyValue *kv1 = (KeyValue *)a;
   KeyValue *kv2 = (KeyValue *)b;
@@ -588,4 +590,77 @@ int compare (const void * a, const void * b) {
 
 void sort_bucket(KeyValue *bucket, long len) {
     qsort(bucket, len, sizeof(KeyValue), compare);
+}
+
+
+void find_next_kv_pair(char *recv, int *current, char buffer[], int *value) {
+    // takes the byte array *recv and a current index and returns the next position
+    // of the index, the key of the new kv pair (in buffer variable) and the 
+    // value of the new kv pair (in the value variable)
+    
+    int k = 0;
+    while (recv[*current] != '\0') {
+        buffer[k] = recv[*current];
+        (*current) ++;
+        k++;
+    }
+    (*current)++; // for '\0'
+    buffer[k] = '\0';
+
+    // read value
+    *value = (recv[*current] & 0x000000ff) | 
+                ((recv[(*current)+1] & 0x000000ff) << 8) |
+                ((recv[(*current)+2] & 0x000000ff) << 16)|
+                 ((recv[(*current)+3] & 0x000000ff) << 24);
+    (*current) += 4;
+}
+
+KeyValue * merge_bucket_with_byte_array(KeyValue *bucket, int num_buckets, char *recv, int num_recv, int *size) {
+    // merge one sorted bucket with one sorted byte array bucket
+    KeyValue *merged = (KeyValue *)malloc((num_buckets + num_recv) * sizeof(KeyValue));
+    *size = 0;
+    int i = 0;
+    int j = 0;
+
+    char buffer[16];
+
+    while(i < num_buckets && j < num_recv) {
+        int current = j;
+        int value;
+        find_next_kv_pair(recv, &current, buffer, &value);
+        int cmp = strcmp(bucket[i].key, buffer);
+
+        if(cmp < 0)
+            merged[(*size) ++] = bucket[i ++];
+        else if(cmp == 0) {
+            merged[(*size)] = bucket[i ++];
+            merged[(*size) ++].value += value;
+            j = current;
+        } else {
+            int key_size = strlen(buffer);
+            merged[*size].key = (char *) malloc(key_size + 1);
+            memcpy(merged[*size].key, buffer, key_size);
+            merged[*size].key[key_size] = '\0';
+            merged[(*size) ++].value = value;
+            j = current;
+        }
+    }
+
+    while(i < num_buckets)
+        merged[(*size) ++] = bucket[i ++];
+
+    free(bucket);
+    while(j < num_recv){
+        int value;
+        find_next_kv_pair(recv, &j, buffer, &value);
+        int key_size = strlen(buffer);
+        merged[*size].key = (char *) malloc(key_size + 1);
+        memcpy(merged[*size].key, buffer, key_size);
+        merged[*size].key[key_size] = '\0';
+        merged[(*size) ++].value = value;
+    }
+
+    free(recv);
+    merged = (KeyValue *)realloc(merged, *size * sizeof(KeyValue));
+    return merged;
 }

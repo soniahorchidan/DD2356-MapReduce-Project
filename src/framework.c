@@ -578,3 +578,14 @@ void write_file() {
     // TODO clean up
 
 }
+
+
+int compare (const void * a, const void * b) {
+  KeyValue *kv1 = (KeyValue *)a;
+  KeyValue *kv2 = (KeyValue *)b;
+  return strcmp(kv1->key, kv2->key);
+}
+
+void sort_bucket(KeyValue *bucket, long len) {
+    qsort(bucket, len, sizeof(KeyValue), compare);
+}

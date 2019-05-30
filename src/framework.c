@@ -16,18 +16,21 @@ typedef struct {
     MPI_File input_file, output_file;
 
     // Datatype for reading/writing
-    MPI_Datatype subarray;
+	MPI_Datatype read_type;
+    MPI_Datatype write_type;
 
     // local data
-    KeyValue * data;
+    KeyValue * big_bucket;
+	KeyValue * small_bucket;
 
-    // ranks ans sizes
+    // ranks and sizes
     int world_rank, world_size;
 
     // input size
-    long input_len;
-    //local size
-    long local_data_len;
+    long input_file_len;
+    //local sizes
+    long big_bucket_size;
+	long small_bucket_size;
     // number of extra chars to read in the end of array
     int offset;
     // max word size
@@ -52,20 +55,20 @@ void read_file(char * input) {
         MPI_Offset size;
         MPI_File_get_size(lc.input_file, & size);
         MPI_File_close( & lc.input_file);
-        lc.input_len = size - 1; // exclude EOF
-        printf("Input file contains %ld chars.\n", lc.input_len);
+        lc.input_file_len = size - 1; // exclude EOF
+        printf("Input file contains %ld chars.\n", lc.input_file_len);
     }
 
     // broadcast input size
-    MPI_Bcast( & lc.input_len, 1, MPI_LONG, 0, MPI_COMM_WORLD);
+    MPI_Bcast( & lc.input_file_len, 1, MPI_LONG, 0, MPI_COMM_WORLD);
 
     // calculate local data size
     lc.offset = lc.max_word_size -1;
-    int chunk_size = lc.input_len / lc.world_size;
+    int chunk_size = lc.input_file_len / lc.world_size;
     int read_len = chunk_size;
 
     // last process reads trailing chars - size: [0, lc.world_size)
-    if(lc.world_rank == lc.world_size -1) read_len += lc.input_len % lc.world_size;
+    if(lc.world_rank == lc.world_size -1) read_len += lc.input_file_len % lc.world_size;
 
     //all processes except the first one read one extra byte in the beginning
     if(lc.world_rank != 0) read_len += 1;
@@ -87,8 +90,8 @@ void read_file(char * input) {
         lc.world_rank==0? 2 : 3, chunk_size
     };
 
-    MPI_Type_create_subarray(2, array_size, subarray_size, start_from, MPI_ORDER_C, MPI_CHAR, & lc.subarray);
-    MPI_Type_commit( & lc.subarray);
+    MPI_Type_create_subarray(2, array_size, subarray_size, start_from, MPI_ORDER_C, MPI_CHAR, & lc.read_type);
+    MPI_Type_commit( & lc.read_type);
 
     // alloc space for reading
     char *p, *p_dummy;
@@ -106,7 +109,7 @@ void read_file(char * input) {
     int offset = lc.world_rank == 0? 0: chunk_size -1;
     // read file
     MPI_File_open(MPI_COMM_WORLD, input, MPI_MODE_RDONLY, MPI_INFO_NULL, & lc.input_file);
-    MPI_File_set_view(lc.input_file, offset, MPI_CHAR, lc.subarray, "native", MPI_INFO_NULL);
+    MPI_File_set_view(lc.input_file, offset, MPI_CHAR, lc.read_type, "native", MPI_INFO_NULL);
     MPI_File_read_all(lc.input_file, p, read_len, MPI_CHAR, MPI_STATUS_IGNORE);
     MPI_File_close( & lc.input_file);
 
@@ -114,10 +117,10 @@ void read_file(char * input) {
 
     //printf("Rank %d read: |%s|\n",lc.world_rank ,p);
 
-    lc.data = (KeyValue * ) malloc(sizeof(KeyValue));
-    lc.data[0].key = p;
-    lc.data[0].value = 1;
-    lc.local_data_len = 1;
+    lc.small_bucket = (KeyValue * ) malloc(sizeof(KeyValue));
+    lc.small_bucket[0].key = p;
+    lc.small_bucket[0].value = 1;
+    lc.small_bucket_size = 1;
 
 }
 
@@ -154,19 +157,19 @@ void flat_map() {
     int i;
     int word_counter = 0;
     int read_head = 0;
-    int input_size = strlen(lc.data[0].key);
+    int input_size = strlen(lc.small_bucket[0].key);
 
     long int chunk_len = input_size - lc.offset; // remove offset size
     if(lc.world_rank == lc.world_size -1) chunk_len+= lc.offset; // last chuck has no offset
 
     // skip broken word - if any
-    while(!isSep(lc.data[0].key[read_head]) && read_head < chunk_len) read_head++;
+    while(!isSep(lc.small_bucket[0].key[read_head]) && read_head < chunk_len) read_head++;
 
     while (read_head < chunk_len) {
-        find_next_word(lc.data[0].key, input_size, &read_head, & word_start_index, & word_size);
+        find_next_word(lc.small_bucket[0].key, input_size, &read_head, & word_start_index, & word_size);
         if (word_size == 0) break;
         words[word_counter] = (char * ) malloc((word_size + 1) * sizeof(char));
-        strncpy(words[word_counter], lc.data[0].key + word_start_index, word_size);
+        strncpy(words[word_counter], lc.small_bucket[0].key + word_start_index, word_size);
         words[word_counter][word_size] = '\0';
         word_counter++;
         if (word_counter == buffer_size) // full
@@ -174,20 +177,20 @@ void flat_map() {
             words = (char ** ) realloc(words, buffer_size * sizeof( * words));
     }
 
-    free(lc.data[0].key);
-    free(lc.data);
-    lc.data = (KeyValue * ) malloc(word_counter * sizeof(KeyValue));
+    free(lc.small_bucket[0].key);
+    free(lc.small_bucket);
+    lc.small_bucket = (KeyValue * ) malloc(word_counter * sizeof(KeyValue));
 
     #pragma omp parallel for private(i)
     for (i = 0; i < word_counter; i++) {
-	lc.data[i].key = words[i];
-        lc.data[i].value = 1;
+	lc.small_bucket[i].key = words[i];
+        lc.small_bucket[i].value = 1;
     }
 
-    lc.local_data_len = word_counter;
+    lc.small_bucket_size = word_counter;
 
     // for(i = 0; i < word_counter; i ++)
-    //  printf("%d: |%s| %d\n", lc.world_rank, lc.data[i].key, strlen(lc.data[i].key));
+    //  printf("%d: |%s| %d\n", lc.world_rank, lc.small_bucket[i].key, strlen(lc.small_bucket[i].key));
 
     free(words);
 }
@@ -204,23 +207,23 @@ unsigned long hash(char * str) {
 
 void reduce_local() {
 
-    if (lc.local_data_len <= 1) return; // nothing to merge
+    if (lc.big_bucket_size <= 1) return; // nothing to merge
 
     int i, j;
-    for (i = lc.local_data_len - 1; i > 0; i--) {
+    for (i = lc.big_bucket_size - 1; i > 0; i--) {
 
-        int s1 = strlen(lc.data[i].key);
+        int s1 = strlen(lc.big_bucket[i].key);
 
         // compare with others
         for (j = 0; j < i; j++) {
 
-            int s2 = strlen(lc.data[j].key);
+            int s2 = strlen(lc.big_bucket[j].key);
 
             // if keys are equal
-            if (s1 == s2 && memcmp(lc.data[i].key, lc.data[j].key, s1) == 0) {
-                free(lc.data[i].key);
-                lc.data[i].key = NULL;
-                lc.data[j].value+= lc.data[i].value;
+            if (s1 == s2 && memcmp(lc.big_bucket[i].key, lc.big_bucket[j].key, s1) == 0) {
+                free(lc.big_bucket[i].key);
+                lc.big_bucket[i].key = NULL;
+                lc.big_bucket[j].value+= lc.big_bucket[i].value;
                 break;
             }
         }
@@ -290,10 +293,10 @@ void merge(char * recv, int recv_size) {
 
         // try to merge with local bucket
         int merged = 0;
-        for (k = 0; k < lc.local_data_len; k++) {
-            if (strlen(lc.data[k].key) == j && memcmp(lc.data[k].key, buffer, j) == 0) {
+        for (k = 0; k < lc.big_bucket_size; k++) {
+            if (strlen(lc.big_bucket[k].key) == j && memcmp(lc.big_bucket[k].key, buffer, j) == 0) {
                 // merge
-                lc.data[k].value += value;
+                lc.big_bucket[k].value += value;
                 // set value to -1
                 recv[i] = recv[i + 1] = recv[i + 2] = recv[i + 3] = 0;
 
@@ -309,18 +312,18 @@ void merge(char * recv, int recv_size) {
     }
 
     if (remaining == 0) return; // nothing to merge
-    int merge_size = lc.local_data_len + remaining;
+    int merge_size = lc.big_bucket_size + remaining;
     KeyValue * merged = (KeyValue * ) malloc(merge_size * sizeof(KeyValue));
 
     // copy bucket
-    for (i = 0; i < lc.local_data_len; i++) {
-        merged[i].key = lc.data[i].key;
-        merged[i].value = lc.data[i].value;
+    for (i = 0; i < lc.big_bucket_size; i++) {
+        merged[i].key = lc.big_bucket[i].key;
+        merged[i].value = lc.big_bucket[i].value;
     }
 
     // append rest of words to bucket
     i = 0;
-    int l = lc.local_data_len;
+    int l = lc.big_bucket_size;
     while (i < recv_size) {
 
         // read key
@@ -350,9 +353,9 @@ void merge(char * recv, int recv_size) {
         i += 4;
     }
 
-    free(lc.data);
-    lc.data = merged;
-    lc.local_data_len = merge_size;
+    free(lc.big_bucket);
+    lc.big_bucket = merged;
+    lc.big_bucket_size = merge_size;
 
 }
 
@@ -370,9 +373,9 @@ void reduce() {
     }
 
     // find size of each bucket
-    for(i = 0; i < lc.local_data_len; i++) {
-        if(lc.data[i].key != NULL) {
-            unsigned long word_hash = hash(lc.data[i].key);
+    for(i = 0; i < lc.big_bucket_size; i++) {
+        if(lc.big_bucket[i].key != NULL) {
+            unsigned long word_hash = hash(lc.big_bucket[i].key);
             int receiver = word_hash % lc.world_size;
             bucket_size[receiver]++;
         }
@@ -385,11 +388,11 @@ void reduce() {
     }
     // find buckets
     int * sizes = (int * ) calloc(lc.world_size, sizeof(int));
-    for (i = 0; i < lc.local_data_len; i++) {
-        if(lc.data[i].key != NULL) {
-            unsigned long word_hash = hash(lc.data[i].key);
+    for (i = 0; i < lc.big_bucket_size; i++) {
+        if(lc.big_bucket[i].key != NULL) {
+            unsigned long word_hash = hash(lc.big_bucket[i].key);
             int receiver = word_hash % lc.world_size;
-            buckets[receiver][sizes[receiver]++] = lc.data[i];
+            buckets[receiver][sizes[receiver]++] = lc.big_bucket[i];
         }
     }
 
@@ -402,14 +405,14 @@ void reduce() {
     }
 
     // free all unnecessary memory
-    for(i = 0; i < lc.local_data_len; i++){
-        if(lc.data[i].key != NULL) {
-            free(lc.data[i].key);
+    for(i = 0; i < lc.big_bucket_size; i++){
+        if(lc.big_bucket[i].key != NULL) {
+            free(lc.big_bucket[i].key);
         }
     }
-    free(lc.data);
-    lc.data = NULL;
-    lc.local_data_len = 0;
+    free(lc.big_bucket);
+    lc.big_bucket = NULL;
+    lc.big_bucket_size = 0;
 
     for (i = 0; i < lc.world_size; i++) {
         free(buckets[i]);
@@ -462,8 +465,8 @@ void write_file() {
 
     int i;
     int local_size = 0;
-    for (i = 0; i < lc.local_data_len; i++) {
-        KeyValue kv = lc.data[i];
+    for (i = 0; i < lc.big_bucket_size; i++) {
+        KeyValue kv = lc.big_bucket[i];
         // size of string
         local_size += strlen(kv.key);
         // size of count
@@ -480,9 +483,9 @@ void write_file() {
     // create local result
     char * result = (char * ) malloc((local_size+1) * sizeof(char));
     int j = 0;
-    for (i = 0; i < lc.local_data_len; i++) {
+    for (i = 0; i < lc.big_bucket_size; i++) {
         // get key value pair
-        KeyValue kv = lc.data[i];
+        KeyValue kv = lc.big_bucket[i];
         j += sprintf( & result[j], "%s %d\n", kv.key, kv.value);
 
     }
@@ -510,7 +513,6 @@ void write_file() {
     //printf("Rank %d offset %d chars\n", lc.world_rank, proc_offset);
 
     // write results to file
-    MPI_Datatype result_datatype;
     int start_from[1] = {
         proc_offset
     };
@@ -520,15 +522,13 @@ void write_file() {
     int result_array[1] = {
         total_size
     };
-    MPI_Type_create_subarray(1, result_array, local_array, start_from, MPI_ORDER_C, MPI_CHAR, & result_datatype);
-    MPI_Type_commit( & result_datatype);
+    MPI_Type_create_subarray(1, result_array, local_array, start_from, MPI_ORDER_C, MPI_CHAR, & lc.write_type);
+    MPI_Type_commit( & lc.write_type);
     MPI_File_open(MPI_COMM_WORLD, "result", MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, & lc.output_file);
-    MPI_File_set_view(lc.output_file, 0, MPI_CHAR, result_datatype, "native", MPI_INFO_NULL);
+    MPI_File_set_view(lc.output_file, 0, MPI_CHAR, lc.write_type, "native", MPI_INFO_NULL);
     MPI_File_write_all(lc.output_file, result, local_size, MPI_CHAR, MPI_STATUS_IGNORE);
     MPI_File_close( & lc.output_file);
 
-    // clean up
-    free(result);
-    free(lc.data);
+    // TODO clean up
 
 }

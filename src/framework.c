@@ -76,32 +76,33 @@ void read_file(char * path_to_file) {
     lc.big_bucket_size = 0;
     lc.offset = lc.max_word_size -1;
     lc.total_iterations = lc.input_file_len / (lc.chunk_size * lc.world_size);
-    lc.total_iterations = (lc.input_file_len % (lc.chunk_size * lc.world_size)== 0)? 0 : 1;
+    lc.total_iterations += (lc.input_file_len % (lc.chunk_size * lc.world_size)== 0)? 0 : 1;
     lc.iteration_counter = 0;
     lc.rows = lc.input_file_len / lc.chunk_size;
     lc.rows += (lc.input_file_len % lc.chunk_size== 0)? 0 : 1;
 
     if(lc.world_rank == 0) {
-        printf("Number of iterations:%d", lc.total_iterations);
+        printf("Number of iterations: %d.\n", lc.total_iterations);
+        printf("Number of rows: %d.\n", lc.rows);
     }
     int i;
-    for(i = 0; i < lc.total_iterations -1; i++)
+    for(i = 0; i < lc.total_iterations; i++){
     read_chunk(); // reads a chunk into small bucket
+    }
 }
 
 void read_chunk() {
 
     // calculate local data size
     int read_len = lc.chunk_size + lc.max_word_size;
-
     // first round, first process
     int frfp = (lc.iteration_counter == 0) && (lc.world_rank == 0);
     int last_chunk_read_by = (lc.rows % lc.world_size) -1;
     if(last_chunk_read_by == -1) last_chunk_read_by = lc.world_size -1;
     // last round, last process (this is not world_size -1 )
-    int lrlp = (lc.iteration_counter== lc.total_iterations) && (last_chunk_read_by == lc.world_rank);
+    int lrlp = (lc.iteration_counter== lc.total_iterations-1) && (last_chunk_read_by == lc.world_rank);
     // if proc should read at last round
-    int should_read_last_round = (lc.iteration_counter== lc.total_iterations) && (last_chunk_read_by < lc.world_rank);
+    int should_not_read = (lc.iteration_counter== lc.total_iterations-1) && (last_chunk_read_by < lc.world_rank);
 
     // first process in first round cannot read one byte from prev chunk
     if(frfp) {
@@ -110,8 +111,8 @@ void read_chunk() {
 
     // last process in the last round
     if(lrlp){
-        read_len -= lc.offset;
-        read_len += lc.input_file_len % lc.chunk_size;
+        read_len = 1 + (lc.input_file_len % lc.chunk_size);
+        if(read_len == 1) read_len+= lc.chunk_size;
     }
 
     // create subarray datatype
@@ -119,19 +120,29 @@ void read_chunk() {
         lc.rows, lc.chunk_size
     };
     int start_from[2] = {
-        (frfp? lc.world_rank : lc.world_rank-1)+(lc.iteration_counter*lc.world_size), 0
+        (lc.world_rank-1)+(lc.iteration_counter*lc.world_size), 0
     };
     int subarray_size[2] = {
-        (frfp? 2 : 3), lc.chunk_size
+        3, lc.chunk_size
     };
 
-    if(!(should_read_last_round)) { //there is nothing to read
+    if(frfp){
+        start_from[0] = 0;
+        subarray_size[0] = 2;
+    }
+
+    if(lrlp) {
+        subarray_size[0] = 2;
+    }
+
+    if(should_not_read) { //there is nothing to read
         // dummy values
         start_from[0] = 0;
         read_len = 1;
     }
 
     if(lc.iteration_counter > 0) {
+        if(lc.world_rank == 0) printf("removed datatype %d\n", lc.iteration_counter);
         MPI_Type_free(&lc.read_type);
     }
     MPI_Type_create_subarray(2, array_size, subarray_size, start_from, MPI_ORDER_C, MPI_CHAR, & lc.read_type);
@@ -164,6 +175,13 @@ void read_chunk() {
     lc.iteration_counter++;
 
     printf("Iter:%d Rank:%d read: |%s|\n",lc.iteration_counter,lc.world_rank ,p);
+
+    if(should_not_read){
+        free(p);
+        lc.small_bucket = NULL;
+        lc.small_bucket_size = 0;
+        return;
+    }
     lc.small_bucket = (KeyValue * ) malloc(sizeof(KeyValue));
     lc.small_bucket[0].key = p;
     lc.small_bucket[0].value = 1;

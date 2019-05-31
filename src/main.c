@@ -55,7 +55,7 @@ int main(int argc, char *argv[])
 			flat_map();
 
 			// REDUCE
-			//reduce();
+			reduce();
 		}
 		
 		// WRITE

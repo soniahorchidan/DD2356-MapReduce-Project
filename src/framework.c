@@ -49,7 +49,7 @@ typedef struct {
 }
 LocalConfig;
 
-LocalConfig lc = {.chunk_size = 5, .max_word_size = 3}; //67108864
+LocalConfig lc = {.chunk_size = 128, .max_word_size = 16}; //67108864
 
 int  read_file(char * path_to_file) {
 
@@ -167,7 +167,7 @@ void read_chunk() {
         MPI_File_close(&lc.input_file);
     }
 
-    //printf("Iter:%d Rank:%d read: |%s|\n",lc.iteration_counter,lc.world_rank ,p);
+    printf("Iter:%d Rank:%d read: |%s|\n",lc.iteration_counter,lc.world_rank ,p);
 
     if(should_not_read){
         free(p);
@@ -230,7 +230,7 @@ void flat_map() {
         word_counter++;
         if (word_counter == buffer_size) // full
             buffer_size *= 2;
-            words = (char ** ) realloc(words, buffer_size * sizeof( * words));
+        words = (char ** ) realloc(words, buffer_size * sizeof( * words));
     }
 
     free(lc.small_bucket[0].key);
@@ -404,9 +404,9 @@ KeyValue * merge_bucket_with_byte_array(KeyValue *bucket, int num_buckets, char 
 void reduce() {
     
     int i;
-
     // local reduce
-    // local_reduce();
+    sort_bucket(lc.small_bucket, lc.small_bucket_size);
+    local_reduce(lc.small_bucket, lc.small_bucket_size);
 
     // initialize bucket sizes
     int bucket_size[lc.world_size];
@@ -415,9 +415,9 @@ void reduce() {
     }
 
     // find size of each bucket
-    for(i = 0; i < lc.big_bucket_size; i++) {
-        if(lc.big_bucket[i].key != NULL) {
-            unsigned long word_hash = hash(lc.big_bucket[i].key);
+    for(i = 0; i < lc.small_bucket_size; i++) {
+        if(lc.small_bucket[i].key != NULL) {
+            unsigned long word_hash = hash(lc.small_bucket[i].key);
             int receiver = word_hash % lc.world_size;
             bucket_size[receiver]++;
         }
@@ -430,11 +430,11 @@ void reduce() {
     }
     // find buckets
     int * sizes = (int * ) calloc(lc.world_size, sizeof(int));
-    for (i = 0; i < lc.big_bucket_size; i++) {
-        if(lc.big_bucket[i].key != NULL) {
-            unsigned long word_hash = hash(lc.big_bucket[i].key);
+    for (i = 0; i < lc.small_bucket_size; i++) {
+        if(lc.small_bucket[i].key != NULL) {
+            unsigned long word_hash = hash(lc.small_bucket[i].key);
             int receiver = word_hash % lc.world_size;
-            buckets[receiver][sizes[receiver]++] = lc.big_bucket[i];
+            buckets[receiver][sizes[receiver]++] = lc.small_bucket[i];
         }
     }
 
@@ -447,13 +447,13 @@ void reduce() {
     }
 
     // free all unnecessary memory
-    for(i = 0; i < lc.big_bucket_size; i++){
-        if(lc.big_bucket[i].key != NULL) {
-            free(lc.big_bucket[i].key);
+    for(i = 0; i < lc.small_bucket_size; i++){
+        if(lc.small_bucket[i].key != NULL) {
+            free(lc.small_bucket[i].key);
         }
     }
-    free(lc.big_bucket);
-    lc.big_bucket = NULL;
+    free(lc.small_bucket);
+    lc.small_bucket = NULL;
     lc.big_bucket_size = 0;
 
     for (i = 0; i < lc.world_size; i++) {
@@ -480,15 +480,11 @@ void reduce() {
         MPI_Irecv(recv_bytes[i], recv_sizes_bytes[i], MPI_BYTE, i, 0, MPI_COMM_WORLD, &recv_requests[i]);
     }
 
-    int index_rec = 0;
-    for (i = 0; i < lc.world_size; i ++) {
-        // wait for any message to arrive, then merge
-        MPI_Waitany(lc.world_size, recv_requests, &index_rec, MPI_STATUS_IGNORE);
-        // printf("PROCESS %d RECEIVED FROM PROCESS %d\n", lc.world_rank, index_rec);
-        // merge(recv_bytes[index_rec], recv_sizes_bytes[index_rec]);
-    }
+    //wait for all the small buckets to arrive
+    MPI_Waitall(lc.world_size, recv_requests, MPI_STATUS_IGNORE);
 
     MPI_Waitall(lc.world_size, send_requests, MPI_STATUS_IGNORE);
+
 
     // free remaining pointers
     for (i = 0; i < lc.world_size; i++) {
@@ -500,7 +496,6 @@ void reduce() {
     free(send_bytes);
     free(sizes_bytes);
     free(sizes);
-
 }
 
 void write_file() {

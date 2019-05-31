@@ -49,7 +49,7 @@ typedef struct {
 }
 LocalConfig;
 
-LocalConfig lc = {.chunk_size = 67108864, .max_word_size = 16}; //67108864
+LocalConfig lc = {.chunk_size = 67708864, .max_word_size = 16}; //67108864
 
 int  read_file(char * path_to_file) {
 
@@ -285,20 +285,23 @@ void local_reduce(KeyValue *bucket, int size) {
 void convert_buckets_into_bytes(KeyValue * bucket, int bucket_size, char ** bytes, int * bytes_size) {
 
     int i,j;
-    *bytes_size = 0;
+    *bytes_size = 4; // array starts with an int showing the number or pairs
 
     for (i = 0; i < bucket_size; i++) {
         *bytes_size += strlen(bucket[i].key) + 5; // 1 for space, 4 for int
     }
 
-    if (*bytes_size == 0){
-        *bytes = NULL;
-        return;
-    }
-
     *bytes = (char * ) malloc( (*bytes_size) * sizeof(char));
-
     j = 0;
+
+    // append number or pairs
+    (*bytes)[j]   =  bucket_size & 0x000000ff;
+    (*bytes)[j+1] = (bucket_size & 0x0000ff00) >> 8;
+    (*bytes)[j+2] = (bucket_size & 0x00ff0000) >> 16;
+    (*bytes)[j+3] = (bucket_size & 0xff000000) >> 24;
+    j+=4;
+
+
     for (i = 0; i < bucket_size; i++) {
         int str_size = strlen(bucket[i].key);
         strncpy(*bytes + j, bucket[i].key, str_size);
@@ -328,7 +331,7 @@ void sort_bucket(KeyValue *bucket, long len) {
 }
 
 
-void find_next_kv_pair(char *recv, int *current, char buffer[], int *value) {
+int find_next_kv_pair(char *recv, int *current, char buffer[], int *value) {
     // takes the byte array *recv and a current index and returns the next position
     // of the index, the key of the new kv pair (in buffer variable) and the 
     // value of the new kv pair (in the value variable)
@@ -348,71 +351,67 @@ void find_next_kv_pair(char *recv, int *current, char buffer[], int *value) {
                 ((recv[(*current)+2] & 0x000000ff) << 16)|
                  ((recv[(*current)+3] & 0x000000ff) << 24);
     (*current) += 4;
+    return k;
 }
 
-void merge_all(char **inc_bucket, int *inc_size){
-    
-}
+void merge_bucket_with_byte_array(char *recv, int num_recv) {
 
-KeyValue * merge_bucket_with_byte_array(KeyValue *bucket, int num_buckets, char *recv, int num_recv, int *size) {
-    // merge one sorted bucket with one sorted byte array bucket
-    KeyValue *merged = (KeyValue *)malloc((num_buckets + num_recv) * sizeof(KeyValue));
-    *size = 0;
+    int size = 0;
     int i = 0;
-    int j = 0;
+    int j = 4;
+    int pairs_recv = (recv[0] & 0x000000ff)        |
+                     ((recv[1] & 0x000000ff) << 8 )|
+                     ((recv[2] & 0x000000ff) << 16)|
+                     ((recv[3] & 0x000000ff) << 24);
 
-    char buffer[16];
+    KeyValue *merged = (KeyValue *)malloc((lc.big_bucket_size + pairs_recv) * sizeof(KeyValue));
 
-    while(i < num_buckets && j < num_recv) {
+    char buffer[17];
+
+    while(i < lc.big_bucket_size && j < num_recv) {
         int current = j;
         int value;
-        find_next_kv_pair(recv, &current, buffer, &value);
-        int cmp = strcmp(bucket[i].key, buffer);
+        int key_size = find_next_kv_pair(recv, &current, buffer, &value);
+        int cmp = strcmp(lc.big_bucket[i].key, buffer);
 
         if(cmp < 0)
-            merged[(*size) ++] = bucket[i ++];
+            merged[size ++] = lc.big_bucket[i ++];
         else if(cmp == 0) {
-            merged[(*size)] = bucket[i ++];
-            merged[(*size) ++].value += value;
+            merged[size] = lc.big_bucket[i ++];
+            merged[size ++].value += value;
             j = current;
         } else {
-            int key_size = strlen(buffer);
-            merged[*size].key = (char *) malloc(key_size + 1);
-            memcpy(merged[*size].key, buffer, key_size);
-            merged[*size].key[key_size] = '\0';
-            merged[(*size) ++].value = value;
+            merged[size].key = (char *) malloc(key_size + 1);
+            memcpy(merged[size].key, buffer, key_size);
+            merged[size].key[key_size] = '\0';
+            merged[size ++].value = value;
             j = current;
         }
     }
 
-    while(i < num_buckets)
-        merged[(*size) ++] = bucket[i ++];
+    while(i < lc.big_bucket_size)
+        merged[size ++] = lc.big_bucket[i ++];
 
-    free(bucket);
+    free(lc.big_bucket);
     while(j < num_recv){
         int value;
-        find_next_kv_pair(recv, &j, buffer, &value);
-        int key_size = strlen(buffer);
-        merged[*size].key = (char *) malloc(key_size + 1);
-        memcpy(merged[*size].key, buffer, key_size);
-        merged[*size].key[key_size] = '\0';
-        merged[(*size) ++].value = value;
+        int key_size = find_next_kv_pair(recv, &j, buffer, &value);
+        merged[size].key = (char *) malloc(key_size + 1);
+        memcpy(merged[size].key, buffer, key_size);
+        merged[size].key[key_size] = '\0';
+        merged[size ++].value = value;
     }
 
     free(recv);
-    merged = (KeyValue *)realloc(merged, *size * sizeof(KeyValue));
-    return merged;
+    lc.big_bucket_size = size;
+    lc.big_bucket = (KeyValue *)realloc(merged, size * sizeof(KeyValue));
 }
 
 
 void reduce() {
-    double s = MPI_Wtime();
     int i;
     // local reduce
     sort_bucket(lc.small_bucket, lc.small_bucket_size);
-    double e = MPI_Wtime();
-    printf("preproc took %0.2f sec\n", e-s);
-
     local_reduce(lc.small_bucket, lc.small_bucket_size);
 
     // initialize bucket sizes
@@ -489,14 +488,18 @@ void reduce() {
     }
 
     //wait for all the small buckets to arrive
-    MPI_Waitall(lc.world_size, recv_requests, MPI_STATUS_IGNORE);
+    int index_rec;
+    for (i = 0; i < lc.world_size; i ++) {
+        // wait for any message to arrive, then merge
+        MPI_Waitany(lc.world_size, recv_requests, &index_rec, MPI_STATUS_IGNORE);
+        // printf("PROCESS %d RECEIVED FROM PROCESS %d\n", lc.world_rank, index_rec);
+        merge_bucket_with_byte_array(recv_bytes[index_rec], recv_sizes_bytes[index_rec]);
+    }
 
     MPI_Waitall(lc.world_size, send_requests, MPI_STATUS_IGNORE);
-    merge_all(recv_bytes, recv_sizes_bytes);
 
     // free remaining pointers
     for (i = 0; i < lc.world_size; i++) {
-        free(recv_bytes[i]);
         free(send_bytes[i]);
     }
 }
@@ -565,8 +568,6 @@ void write_file() {
     MPI_File_set_view(lc.output_file, 0, MPI_CHAR, lc.write_type, "native", MPI_INFO_NULL);
     MPI_File_write_all(lc.output_file, result, local_size, MPI_CHAR, MPI_STATUS_IGNORE);
     MPI_File_close( & lc.output_file);
-
-    // TODO clean up
 
 }
 

@@ -277,30 +277,26 @@ unsigned long hash(char * str) {
     return hash;
 }
 
-void reduce_local() {
 
-    if (lc.big_bucket_size <= 1) return; // nothing to merge
+void local_reduce(KeyValue *bucket, int size) {
+    // reduce sorted bucket
+    
+    int i = 0;          // iterate the bucket
 
-    int i, j;
-    for (i = lc.big_bucket_size - 1; i > 0; i--) {
-
-        int s1 = strlen(lc.big_bucket[i].key);
-
-        // compare with others
-        for (j = 0; j < i; j++) {
-
-            int s2 = strlen(lc.big_bucket[j].key);
-
-            // if keys are equal
-            if (s1 == s2 && memcmp(lc.big_bucket[i].key, lc.big_bucket[j].key, s1) == 0) {
-                free(lc.big_bucket[i].key);
-                lc.big_bucket[i].key = NULL;
-                lc.big_bucket[j].value+= lc.big_bucket[i].value;
-                break;
-            }
+    while(i < size) {
+        int j = i + 1;
+        int current_word_size = strlen(bucket[i].key);
+        while(j < size && current_word_size == strlen(bucket[j].key)   
+            && memcmp(bucket[i].key, bucket[j].key, current_word_size) == 0) {
+            // free(bucket[j].key);     // TODO
+            bucket[j].key = NULL;
+            bucket[i].value += bucket[j].value;
+            j ++;
         }
+        i = j;
     }
 }
+
 
 void convert_buckets_into_bytes(KeyValue * bucket, int bucket_size, char ** bytes, int * bytes_size) {
 
@@ -336,107 +332,97 @@ void convert_buckets_into_bytes(KeyValue * bucket, int bucket_size, char ** byte
     }
 }
 
-void merge(char * recv, int recv_size) {
+
+int compare (const void * a, const void * b) {
+  KeyValue *kv1 = (KeyValue *)a;
+  KeyValue *kv2 = (KeyValue *)b;
+  return strcmp(kv1->key, kv2->key);
+}
+
+void sort_bucket(KeyValue *bucket, long len) {
+    qsort(bucket, len, sizeof(KeyValue), compare);
+}
+
+
+void find_next_kv_pair(char *recv, int *current, char buffer[], int *value) {
+    // takes the byte array *recv and a current index and returns the next position
+    // of the index, the key of the new kv pair (in buffer variable) and the 
+    // value of the new kv pair (in the value variable)
+    
+    int k = 0;
+    while (recv[*current] != '\0') {
+        buffer[k] = recv[*current];
+        (*current) ++;
+        k++;
+    }
+    (*current)++; // for '\0'
+    buffer[k] = '\0';
+
+    // read value
+    *value = (recv[*current] & 0x000000ff) | 
+                ((recv[(*current)+1] & 0x000000ff) << 8) |
+                ((recv[(*current)+2] & 0x000000ff) << 16)|
+                 ((recv[(*current)+3] & 0x000000ff) << 24);
+    (*current) += 4;
+}
+
+KeyValue * merge_bucket_with_byte_array(KeyValue *bucket, int num_buckets, char *recv, int num_recv, int *size) {
+    // merge one sorted bucket with one sorted byte array bucket
+    KeyValue *merged = (KeyValue *)malloc((num_buckets + num_recv) * sizeof(KeyValue));
+    *size = 0;
+    int i = 0;
+    int j = 0;
 
     char buffer[16];
-    int j, i, k;
-    int remaining = 0;
 
-    i = 0;
-    while (i < recv_size) {
+    while(i < num_buckets && j < num_recv) {
+        int current = j;
+        int value;
+        find_next_kv_pair(recv, &current, buffer, &value);
+        int cmp = strcmp(bucket[i].key, buffer);
 
-        // read key
-        j = 0;
-        while (recv[i] != '\0') {
-            buffer[j] = recv[i];
-            i++;
-            j++;
+        if(cmp < 0)
+            merged[(*size) ++] = bucket[i ++];
+        else if(cmp == 0) {
+            merged[(*size)] = bucket[i ++];
+            merged[(*size) ++].value += value;
+            j = current;
+        } else {
+            int key_size = strlen(buffer);
+            merged[*size].key = (char *) malloc(key_size + 1);
+            memcpy(merged[*size].key, buffer, key_size);
+            merged[*size].key[key_size] = '\0';
+            merged[(*size) ++].value = value;
+            j = current;
         }
-        i++; // for '\0'
-        buffer[j] = '\0';
-
-        // read value
-        int value = (recv[i] & 0x000000ff) | 
-                    ((recv[i+1] & 0x000000ff) << 8) |
-                    ((recv[i+2] & 0x000000ff) << 16)|
-                    ((recv[i+3] & 0x000000ff) << 24);
-
-        //printf("entry: |%s|, %d\n", buffer, value);
-
-        // try to merge with local bucket
-        int merged = 0;
-        for (k = 0; k < lc.big_bucket_size; k++) {
-            if (strlen(lc.big_bucket[k].key) == j && memcmp(lc.big_bucket[k].key, buffer, j) == 0) {
-                // merge
-                lc.big_bucket[k].value += value;
-                // set value to -1
-                recv[i] = recv[i + 1] = recv[i + 2] = recv[i + 3] = 0;
-
-                merged = 1;
-                break;
-            }
-        }
-
-        if (merged == 0) {
-            remaining++;
-        }
-        i += 4;
     }
 
-    if (remaining == 0) return; // nothing to merge
-    int merge_size = lc.big_bucket_size + remaining;
-    KeyValue * merged = (KeyValue * ) malloc(merge_size * sizeof(KeyValue));
+    while(i < num_buckets)
+        merged[(*size) ++] = bucket[i ++];
 
-    // copy bucket
-    for (i = 0; i < lc.big_bucket_size; i++) {
-        merged[i].key = lc.big_bucket[i].key;
-        merged[i].value = lc.big_bucket[i].value;
+    free(bucket);
+    while(j < num_recv){
+        int value;
+        find_next_kv_pair(recv, &j, buffer, &value);
+        int key_size = strlen(buffer);
+        merged[*size].key = (char *) malloc(key_size + 1);
+        memcpy(merged[*size].key, buffer, key_size);
+        merged[*size].key[key_size] = '\0';
+        merged[(*size) ++].value = value;
     }
 
-    // append rest of words to bucket
-    i = 0;
-    int l = lc.big_bucket_size;
-    while (i < recv_size) {
-
-        // read key
-        j = 0;
-        while (recv[i] != '\0') {
-            buffer[j] = recv[i];
-            i++;
-            j++;
-        }
-        i++; // for '\0'
-        buffer[j] = '\0';
-        j++;
-
-        // read value
-        int value = (recv[i] & 0x000000ff) |
-                    ((recv[i+1] & 0x000000ff) << 8) |
-                    ((recv[i+2] & 0x000000ff) << 16)|
-                    ((recv[i+3] & 0x000000ff) << 24);
-
-        if (value > 0) {
-            char * array = (char * ) malloc(j);
-            strncpy(array, buffer, j);
-            merged[l].key = array;
-            merged[l].value = value;
-            l++;
-        }
-        i += 4;
-    }
-
-    free(lc.big_bucket);
-    lc.big_bucket = merged;
-    lc.big_bucket_size = merge_size;
-
+    free(recv);
+    merged = (KeyValue *)realloc(merged, *size * sizeof(KeyValue));
+    return merged;
 }
+
 
 void reduce() {
     
     int i;
 
     // local reduce
-    reduce_local();
+    // local_reduce();
 
     // initialize bucket sizes
     int bucket_size[lc.world_size];
@@ -515,7 +501,7 @@ void reduce() {
         // wait for any message to arrive, then merge
         MPI_Waitany(lc.world_size, recv_requests, &index_rec, MPI_STATUS_IGNORE);
         // printf("PROCESS %d RECEIVED FROM PROCESS %d\n", lc.world_rank, index_rec);
-        merge(recv_bytes[index_rec], recv_sizes_bytes[index_rec]);
+        // merge(recv_bytes[index_rec], recv_sizes_bytes[index_rec]);
     }
 
     MPI_Waitall(lc.world_size, send_requests, MPI_STATUS_IGNORE);
@@ -603,115 +589,3 @@ void write_file() {
 }
 
 
-// ------------------------------------ new functions
-
-int compare (const void * a, const void * b) {
-  KeyValue *kv1 = (KeyValue *)a;
-  KeyValue *kv2 = (KeyValue *)b;
-  return strcmp(kv1->key, kv2->key);
-}
-
-void sort_bucket(KeyValue *bucket, long len) {
-    qsort(bucket, len, sizeof(KeyValue), compare);
-}
-
-
-void find_next_kv_pair(char *recv, int *current, char buffer[], int *value) {
-    // takes the byte array *recv and a current index and returns the next position
-    // of the index, the key of the new kv pair (in buffer variable) and the 
-    // value of the new kv pair (in the value variable)
-    
-    int k = 0;
-    while (recv[*current] != '\0') {
-        buffer[k] = recv[*current];
-        (*current) ++;
-        k++;
-    }
-    (*current)++; // for '\0'
-    buffer[k] = '\0';
-
-    // read value
-    *value = (recv[*current] & 0x000000ff) | 
-                ((recv[(*current)+1] & 0x000000ff) << 8) |
-                ((recv[(*current)+2] & 0x000000ff) << 16)|
-                 ((recv[(*current)+3] & 0x000000ff) << 24);
-    (*current) += 4;
-}
-
-KeyValue * merge_bucket_with_byte_array(KeyValue *bucket, int num_buckets, char *recv, int num_recv, int *size) {
-    // merge one sorted bucket with one sorted byte array bucket
-    KeyValue *merged = (KeyValue *)malloc((num_buckets + num_recv) * sizeof(KeyValue));
-    *size = 0;
-    int i = 0;
-    int j = 0;
-
-    char buffer[16];
-
-    while(i < num_buckets && j < num_recv) {
-        int current = j;
-        int value;
-        find_next_kv_pair(recv, &current, buffer, &value);
-        int cmp = strcmp(bucket[i].key, buffer);
-
-        if(cmp < 0)
-            merged[(*size) ++] = bucket[i ++];
-        else if(cmp == 0) {
-            merged[(*size)] = bucket[i ++];
-            merged[(*size) ++].value += value;
-            j = current;
-        } else {
-            int key_size = strlen(buffer);
-            merged[*size].key = (char *) malloc(key_size + 1);
-            memcpy(merged[*size].key, buffer, key_size);
-            merged[*size].key[key_size] = '\0';
-            merged[(*size) ++].value = value;
-            j = current;
-        }
-    }
-
-    while(i < num_buckets)
-        merged[(*size) ++] = bucket[i ++];
-
-    free(bucket);
-    while(j < num_recv){
-        int value;
-        find_next_kv_pair(recv, &j, buffer, &value);
-        int key_size = strlen(buffer);
-        merged[*size].key = (char *) malloc(key_size + 1);
-        memcpy(merged[*size].key, buffer, key_size);
-        merged[*size].key[key_size] = '\0';
-        merged[(*size) ++].value = value;
-    }
-
-    free(recv);
-    merged = (KeyValue *)realloc(merged, *size * sizeof(KeyValue));
-    return merged;
-}
-
-
-void local_reduce(KeyValue *bucket, int size, int *new_size) {
-    // reduce sorted bucket
-    
-    int i = 0;          // iterate the bucket
-    int current = 0;    // keep last index reduced
-
-    while(i < size) {
-        int j = i + 1;
-        int current_word_size = strlen(bucket[i].key);
-        while(j < size && current_word_size == strlen(bucket[j].key)   
-            && memcmp(bucket[i].key, bucket[j].key, current_word_size) == 0) {
-            bucket[i].value += bucket[j].value;
-            bucket[j].key = NULL;
-            j ++;
-        }
-        if(i != current && bucket[i].key != NULL) {
-            bucket[current] = bucket[i];
-            bucket[i].key = NULL; 
-        }
-        i = j;
-        current ++;
-    }
-
-    *new_size = current;
-    bucket = (KeyValue *)realloc(bucket, *new_size * sizeof(KeyValue));
-}

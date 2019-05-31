@@ -32,27 +32,28 @@ typedef struct {
     //local sizes
     long big_bucket_size;
     long small_bucket_size;
-    // number of extra chars to read in the end of array
-    int offset;
     // max word size
     int max_word_size;
     // chunk size per iteration
     int chunk_size;
+    // offset in the end of chunk
+    int chunk_offset;
     // iteration counter
     int iteration_counter;
     // number of iterations until finish
     int total_iterations;
     // number of rows in the input matrix
     int rows;
+    // whethe the process has read data
+    int has_read;
+    int offset; // to be removed, kept for compiling
 }
 LocalConfig;
 
-LocalConfig lc = {.chunk_size = 67108864, .max_word_size = 16};
+LocalConfig lc = {.chunk_size = 5, .max_word_size = 3}; //67108864
 
-// local functions definitions
-void read_chunk();
 
-void read_file(char * path_to_file) {
+int  read_file(char * path_to_file) {
 
     lc.filename = path_to_file;
 
@@ -74,7 +75,6 @@ void read_file(char * path_to_file) {
     MPI_Bcast( & lc.input_file_len, 1, MPI_LONG, 0, MPI_COMM_WORLD);
 
     lc.big_bucket_size = 0;
-    lc.offset = lc.max_word_size -1;
     lc.iteration_counter = 0;
     lc.rows = lc.input_file_len / lc.chunk_size;
     lc.rows += (lc.input_file_len % lc.chunk_size== 0)? 0 : 1;
@@ -85,10 +85,8 @@ void read_file(char * path_to_file) {
         printf("Number of iterations: %d.\n", lc.total_iterations);
         printf("Number of rows: %d.\n", lc.rows);
     }
-    int i;
-    for(i = 0; i < lc.total_iterations; i++){
-    read_chunk(); // reads a chunk into small bucket
-    }
+
+    return lc.total_iterations;
 }
 
 void read_chunk() {
@@ -100,7 +98,9 @@ void read_chunk() {
     int last_chunk_read_by = (lc.rows % lc.world_size) -1;
     if(last_chunk_read_by == -1) last_chunk_read_by = lc.world_size -1;
     // last round, last process (this is not world_size -1 )
-    int lrlp = (lc.iteration_counter== lc.total_iterations-1) && (last_chunk_read_by == lc.world_rank);
+    int lrlp = (lc.iteration_counter== lc.total_iterations-1) && (lc.world_rank == last_chunk_read_by);
+    // last round, second last process
+    int lrslp = (lc.iteration_counter == lc.total_iterations-1) && (lc.world_rank == last_chunk_read_by -1);
     // if proc should read at last round
     int should_not_read = (lc.iteration_counter== lc.total_iterations-1) && (last_chunk_read_by < lc.world_rank);
 
@@ -116,11 +116,16 @@ void read_chunk() {
     }
     
     // the second last process in the last round should read the remaining bytes, not l.offset
-    if((lc.iteration_counter == lc.total_iterations-1) && (last_chunk_read_by != 0) && (lc.world_rank == last_chunk_read_by -1)){
+    if(lrslp){
+        int front = lc.max_word_size -1;
         int rem = lc.input_file_len % lc.chunk_size;
-        read_len -= lc.offset;
-        read_len += (((lc.offset)<(rem))?(lc.offset):(rem));
+        read_len -= front;
+        read_len += (((front)<(rem))?(front):(rem));
     }
+
+    lc.chunk_offset = read_len - lc.chunk_size -1;
+    if(frfp) lc.chunk_offset++;
+    if(lc.chunk_offset < 0) lc.chunk_offset = 0;
 
     // create subarray datatype
     int array_size[2] = {
@@ -167,10 +172,10 @@ void read_chunk() {
         p[read_len] = '\0';
     }
 
-    int offset = frfp? 0: lc.chunk_size -1;
+    int row_offset = frfp? 0: lc.chunk_size -1;
     // read file
     MPI_File_open(MPI_COMM_WORLD, lc.filename, MPI_MODE_RDONLY, MPI_INFO_NULL, & lc.input_file);
-    MPI_File_set_view(lc.input_file, offset, MPI_CHAR, lc.read_type, "native", MPI_INFO_NULL);
+    MPI_File_set_view(lc.input_file, row_offset, MPI_CHAR, lc.read_type, "native", MPI_INFO_NULL);
     MPI_File_read_all(lc.input_file, p, read_len, MPI_CHAR, MPI_STATUS_IGNORE);
     MPI_File_close( & lc.input_file);
 

@@ -38,32 +38,28 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
-	int i;
-	double start,read,map,red,write,end;
+	int i,j;
+	double start,end;
 	for (i = 0; i < repeat; i++){
 
 		MPI_Barrier(MPI_COMM_WORLD);
 		start = MPI_Wtime();
 
 		// READ
-		read_file(argv[optind]);
-		read = MPI_Wtime();
-                printf("Rank %d: READ completed in %.2f seconds\n", world_rank, (read-start));
-		
-		// MAP
-		flat_map();
-		map = MPI_Wtime();
-		printf("Rank %d: MAP completed in %.2f seconds\n", world_rank, (map-read));
+		int rounds = read_file(argv[optind]);
 
-		// REDUCE
-		reduce();
-		red = MPI_Wtime();
-		printf("Rank %d: REDUCE completed in %.2f seconds\n", world_rank, (red-map));
+		for(j = 0; j < rounds; j++){
+
+			read_chunk();		
+			// MAP
+			//flat_map();
+
+			// REDUCE
+			//reduce();
+		}
 		
 		// WRITE
 		write_file();
-		write = MPI_Wtime();
-		printf("Rank %d: WRITE completed in %.2f seconds\n", world_rank, (write-red));
 
 		MPI_Barrier(MPI_COMM_WORLD);
 		end = MPI_Wtime();

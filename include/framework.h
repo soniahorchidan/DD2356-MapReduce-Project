@@ -10,7 +10,9 @@
 
 #include <mpi.h>
 
-void read_file(char *);
+int read_file(char *);
+
+void read_chunk();
 
 void flat_map();
 

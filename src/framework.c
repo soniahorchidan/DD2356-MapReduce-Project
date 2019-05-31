@@ -49,7 +49,7 @@ typedef struct {
 }
 LocalConfig;
 
-LocalConfig lc = {.chunk_size = 128, .max_word_size = 16}; //67108864
+LocalConfig lc = {.chunk_size = 67108864, .max_word_size = 16}; //67108864
 
 int  read_file(char * path_to_file) {
 
@@ -167,7 +167,7 @@ void read_chunk() {
         MPI_File_close(&lc.input_file);
     }
 
-    printf("Iter:%d Rank:%d read: |%s|\n",lc.iteration_counter,lc.world_rank ,p);
+    //printf("Iter:%d Rank:%d read: |%s|\n",lc.iteration_counter,lc.world_rank ,p);
 
     if(should_not_read){
         free(p);
@@ -350,6 +350,10 @@ void find_next_kv_pair(char *recv, int *current, char buffer[], int *value) {
     (*current) += 4;
 }
 
+void merge_all(char **inc_bucket, int *inc_size){
+    
+}
+
 KeyValue * merge_bucket_with_byte_array(KeyValue *bucket, int num_buckets, char *recv, int num_recv, int *size) {
     // merge one sorted bucket with one sorted byte array bucket
     KeyValue *merged = (KeyValue *)malloc((num_buckets + num_recv) * sizeof(KeyValue));
@@ -402,15 +406,18 @@ KeyValue * merge_bucket_with_byte_array(KeyValue *bucket, int num_buckets, char 
 
 
 void reduce() {
-    
+    double s = MPI_Wtime();
     int i;
     // local reduce
     sort_bucket(lc.small_bucket, lc.small_bucket_size);
+    double e = MPI_Wtime();
+    printf("preproc took %0.2f sec\n", e-s);
+
     local_reduce(lc.small_bucket, lc.small_bucket_size);
 
     // initialize bucket sizes
     int bucket_size[lc.world_size];
-    for(i = 0; i < lc.world_size; i++) {
+    for(i = 0; i < lc.world_size; i++){
         bucket_size[i] = 0;
     }
 
@@ -424,12 +431,15 @@ void reduce() {
     }
 
     // allocate memory for each bucket
-    KeyValue ** buckets = (KeyValue ** ) malloc(lc.world_size * sizeof(KeyValue * ));
+    KeyValue *buckets[lc.world_size];
     for (i = 0; i < lc.world_size; i++) {
         buckets[i] = (KeyValue * ) malloc(bucket_size[i] * sizeof(KeyValue));
     }
     // find buckets
-    int * sizes = (int * ) calloc(lc.world_size, sizeof(int));
+    int sizes[lc.world_size];
+    for(i = 0; i < lc.world_size; i++){
+        sizes[i] = 0;
+    }
     for (i = 0; i < lc.small_bucket_size; i++) {
         if(lc.small_bucket[i].key != NULL) {
             unsigned long word_hash = hash(lc.small_bucket[i].key);
@@ -438,8 +448,8 @@ void reduce() {
         }
     }
 
-    int * sizes_bytes = (int * ) calloc(lc.world_size, sizeof(int));
-    char ** send_bytes = (char ** ) malloc(lc.world_size * sizeof(char * ));
+    int sizes_bytes[lc.world_size];
+    char *send_bytes[lc.world_size];
 
     // convert buckets to byte arrays
     for (i = 0; i < lc.world_size; i++) {
@@ -454,15 +464,13 @@ void reduce() {
     }
     free(lc.small_bucket);
     lc.small_bucket = NULL;
-    lc.big_bucket_size = 0;
+    lc.small_bucket_size = 0;
 
     for (i = 0; i < lc.world_size; i++) {
         free(buckets[i]);
     }
-    free(buckets);
 
-    int * recv_sizes_bytes = (int * ) calloc(lc.world_size, sizeof(int));
-
+    int recv_sizes_bytes[lc.world_size];
     // exchange sizes between processes
     MPI_Alltoall(sizes_bytes, 1, MPI_INT, recv_sizes_bytes, 1, MPI_INT, MPI_COMM_WORLD);
 
@@ -472,7 +480,7 @@ void reduce() {
         MPI_Isend(send_bytes[i], sizes_bytes[i], MPI_BYTE, i, 0, MPI_COMM_WORLD, &send_requests[i]);
     }
 
-    char ** recv_bytes = (char ** ) malloc(lc.world_size * sizeof(char * ));
+    char *recv_bytes[lc.world_size];
     MPI_Request recv_requests[lc.world_size];
 
     for (i = 0; i < lc.world_size; i++) {
@@ -484,18 +492,13 @@ void reduce() {
     MPI_Waitall(lc.world_size, recv_requests, MPI_STATUS_IGNORE);
 
     MPI_Waitall(lc.world_size, send_requests, MPI_STATUS_IGNORE);
-
+    merge_all(recv_bytes, recv_sizes_bytes);
 
     // free remaining pointers
     for (i = 0; i < lc.world_size; i++) {
         free(recv_bytes[i]);
         free(send_bytes[i]);
     }
-    free(recv_bytes);
-    free(recv_sizes_bytes);
-    free(send_bytes);
-    free(sizes_bytes);
-    free(sizes);
 }
 
 void write_file() {

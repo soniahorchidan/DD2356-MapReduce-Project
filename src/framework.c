@@ -272,7 +272,7 @@ void local_reduce(KeyValue *bucket, int size) {
         int current_word_size = strlen(bucket[i].key);
         while(j < size && current_word_size == strlen(bucket[j].key)   
             && memcmp(bucket[i].key, bucket[j].key, current_word_size) == 0) {
-            // free(bucket[j].key);     // TODO
+            free(bucket[j].key);
             bucket[j].key = NULL;
             bucket[i].value += bucket[j].value;
             j ++;

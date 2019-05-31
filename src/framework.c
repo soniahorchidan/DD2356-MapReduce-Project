@@ -51,7 +51,6 @@ LocalConfig;
 
 LocalConfig lc = {.chunk_size = 5, .max_word_size = 3}; //67108864
 
-
 int  read_file(char * path_to_file) {
 
     lc.filename = path_to_file;
@@ -79,6 +78,8 @@ int  read_file(char * path_to_file) {
     lc.rows += (lc.input_file_len % lc.chunk_size== 0)? 0 : 1;
     lc.total_iterations = lc.rows / lc.world_size;
     lc.total_iterations += (lc.rows % lc.world_size == 0)? 0 : 1;
+
+    MPI_File_open(MPI_COMM_WORLD, lc.filename, MPI_MODE_RDONLY, MPI_INFO_NULL, & lc.input_file);
 
     if(lc.world_rank == 0) {
         printf("Number of iterations: %d.\n", lc.total_iterations);
@@ -113,8 +114,8 @@ void read_chunk() {
         read_len = 1 + (lc.input_file_len % lc.chunk_size);
         if(read_len == 1) read_len+= lc.chunk_size;
     }
-    
-    // the second last process in the last round should read the remaining bytes, not l.offset
+
+    // the second last process in the last round should read the remaining bytes
     if(lrslp){
         int front = lc.max_word_size -1;
         int rem = lc.input_file_len % lc.chunk_size;
@@ -122,41 +123,24 @@ void read_chunk() {
         read_len += (((front)<(rem))?(front):(rem));
     }
 
+    // save chunk front offset
     lc.chunk_offset = read_len - lc.chunk_size -1;
     if(frfp) lc.chunk_offset++;
     if(lc.chunk_offset < 0) lc.chunk_offset = 0;
 
-    // create subarray datatype
-    int array_size[2] = {
-        lc.rows, lc.chunk_size
-    };
-    int start_from[2] = {
-        (lc.world_rank-1)+(lc.iteration_counter*lc.world_size), 0
-    };
-    int subarray_size[2] = {
-        3, lc.chunk_size
-    };
+    MPI_Offset file_offset = (lc.world_rank-1)+(lc.iteration_counter*lc.world_size);
+    file_offset *= (long)lc.chunk_size;
+    file_offset += lc.chunk_size -1;
 
     if(frfp){
-        start_from[0] = 0;
-        subarray_size[0] = 2;
-    }
-
-    if(lrlp) {
-        subarray_size[0] = 2;
+        file_offset = 0;
     }
 
     if(should_not_read) { //there is nothing to read
         // dummy values
-        start_from[0] = 0;
+        file_offset = 0;
         read_len = 1;
     }
-
-    if(lc.iteration_counter > 0) {
-        MPI_Type_free(&lc.read_type);
-    }
-    MPI_Type_create_subarray(2, array_size, subarray_size, start_from, MPI_ORDER_C, MPI_CHAR, & lc.read_type);
-    MPI_Type_commit(&lc.read_type);
 
     // alloc space for reading
     char *p, *p_dummy;
@@ -171,18 +155,17 @@ void read_chunk() {
         p[read_len] = '\0';
     }
 
-    int row_offset = frfp? 0: lc.chunk_size -1;
     // read file
-    MPI_File_open(MPI_COMM_WORLD, lc.filename, MPI_MODE_RDONLY, MPI_INFO_NULL, & lc.input_file);
-    MPI_File_set_view(lc.input_file, row_offset, MPI_CHAR, lc.read_type, "native", MPI_INFO_NULL);
-    MPI_File_read_all(lc.input_file, p, read_len, MPI_CHAR, MPI_STATUS_IGNORE);
-    MPI_File_close( & lc.input_file);
+    MPI_File_read_at_all(lc.input_file, file_offset, p, read_len, MPI_CHAR, MPI_STATUS_IGNORE);
 
     if(frfp) {
         p = p_dummy;
     }
 
     lc.iteration_counter++;
+    if(lc.iteration_counter == lc.total_iterations) {
+        MPI_File_close(&lc.input_file);
+    }
 
     //printf("Iter:%d Rank:%d read: |%s|\n",lc.iteration_counter,lc.world_rank ,p);
 
@@ -197,6 +180,7 @@ void read_chunk() {
     lc.small_bucket[0].value = 1;
     lc.small_bucket_size = 1;
 }
+
 
 int isSep(char c) {
     return !isdigit(c) && !isalpha(c);

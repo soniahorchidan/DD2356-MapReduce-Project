@@ -16,8 +16,7 @@ typedef struct {
     char* filename;
     MPI_File input_file, output_file;
 
-    // Datatype for reading/writing
-    MPI_Datatype read_type;
+    // Datatype for writing
     MPI_Datatype write_type;
 
     // local data
@@ -45,11 +44,10 @@ typedef struct {
     // number of rows in the input matrix
     int rows;
     // whethe the process has read data
-    int offset; // to be removed, kept for compiling
 }
 LocalConfig;
 
-LocalConfig lc = {.chunk_size = 67708864, .max_word_size = 16}; //67108864
+LocalConfig lc = {.chunk_size = 20, .max_word_size = 10}; //67108864
 
 int  read_file(char * path_to_file) {
 
@@ -568,7 +566,15 @@ void write_file() {
     MPI_File_set_view(lc.output_file, 0, MPI_CHAR, lc.write_type, "native", MPI_INFO_NULL);
     MPI_File_write_all(lc.output_file, result, local_size, MPI_CHAR, MPI_STATUS_IGNORE);
     MPI_File_close( & lc.output_file);
+    MPI_Type_free(& lc.write_type);
 
+    free(result);
+    for(i = 0; i < lc.big_bucket_size; i++){
+        free(lc.big_bucket[i].key);
+    }
+    free(lc.big_bucket);
+    lc.big_bucket = NULL;
+    lc.big_bucket_size = 0;
 }
 
 

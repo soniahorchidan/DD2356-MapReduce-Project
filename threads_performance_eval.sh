@@ -15,8 +15,6 @@
 
 #SBATCH -e error_file.e
 
-
-## Strong scalling, 10 GB file
 export OMP_NUM_THREADS=8
 aprun -n 16 -N 16 -d 8 ./bin/project.out -r 5 /cfs/klemming/scratch/s/sergiorg/DD2356/input/wikipedia_10GB.txt > results_16p_8t_10GB.txt
 

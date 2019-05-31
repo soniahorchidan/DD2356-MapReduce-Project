@@ -52,7 +52,7 @@ int main(int argc, char *argv[])
 
 			read_chunk();		
 			// MAP
-			//flat_map();
+			flat_map();
 
 			// REDUCE
 			//reduce();

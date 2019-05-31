@@ -30,8 +30,8 @@ typedef struct {
     // input size
     long input_file_len;
     //local sizes
-    long big_bucket_size;
-    long small_bucket_size;
+    int big_bucket_size;
+    int small_bucket_size;
     // max word size
     int max_word_size;
     // chunk size per iteration
@@ -45,7 +45,6 @@ typedef struct {
     // number of rows in the input matrix
     int rows;
     // whethe the process has read data
-    int has_read;
     int offset; // to be removed, kept for compiling
 }
 LocalConfig;
@@ -204,8 +203,7 @@ int isSep(char c) {
 }
 
 void find_next_word(char * input_buffer, int input_size, int * read_head, int * word_start_index, int * word_size) {
-    int chunk_len = input_size - lc.offset;
-    if (lc.world_rank == lc.world_size -1) chunk_len+= lc.offset;
+    int chunk_len = input_size - lc.chunk_offset;
 
     while (isSep(input_buffer[*read_head]) && *read_head < chunk_len) (*read_head)++;
 
@@ -225,6 +223,7 @@ void find_next_word(char * input_buffer, int input_size, int * read_head, int * 
 
 void flat_map() {
 
+    if (lc.small_bucket_size == 0) return;
     int buffer_size = 100;
     int word_start_index;
     int word_size;
@@ -233,9 +232,7 @@ void flat_map() {
     int word_counter = 0;
     int read_head = 0;
     int input_size = strlen(lc.small_bucket[0].key);
-
-    long int chunk_len = input_size - lc.offset; // remove offset size
-    if(lc.world_rank == lc.world_size -1) chunk_len+= lc.offset; // last chuck has no offset
+    int chunk_len = input_size - lc.chunk_offset; // remove offset size
 
     // skip broken word - if any
     while(!isSep(lc.small_bucket[0].key[read_head]) && read_head < chunk_len) read_head++;
@@ -264,8 +261,8 @@ void flat_map() {
 
     lc.small_bucket_size = word_counter;
 
-    // for(i = 0; i < word_counter; i ++)
-    //  printf("%d: |%s| %d\n", lc.world_rank, lc.small_bucket[i].key, strlen(lc.small_bucket[i].key));
+    //for(i = 0; i < word_counter; i ++)
+    //    printf("%d: |%s| %d\n", lc.world_rank, lc.small_bucket[i].key, strlen(lc.small_bucket[i].key));
 
     free(words);
 }
@@ -545,9 +542,6 @@ void write_file() {
         // size of string
         local_size += strlen(kv.key);
         // size of count
-        if (kv.value == 0) {
-            MPI_Abort(MPI_COMM_WORLD, 1);
-        }
         local_size += floor(log10(abs(kv.value))) + 1;
         // space and newline
         local_size += 2;

@@ -47,7 +47,7 @@ typedef struct {
 }
 LocalConfig;
 
-LocalConfig lc = {.chunk_size = 20, .max_word_size = 10}; //67108864
+LocalConfig lc = {.chunk_size = 67108864, .max_word_size = 16}; //67108864
 
 int  read_file(char * path_to_file) {
 

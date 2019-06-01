@@ -25,21 +25,21 @@
 
 # Strong scalling, 10 GB
 
-aprun -n 32 -N 32 ./bin/project.out -r 5 /cfs/klemming/scratch/s/sergiorg/DD2356/input/wikipedia_10GB.txt > results_32p_10GB.txt
+aprun -n 32 -N 32 ./bin/project.out -r 5 /cfs/klemming/scratch/s/sergiorg/DD2356/input/wikipedia_10GB.txt > ./results/results_32p_10GB.txt
 
-aprun -n 64 -N 32 ./bin/project.out -r 5 /cfs/klemming/scratch/s/sergiorg/DD2356/input/wikipedia_10GB.txt > results_64p_10GB.txt
+aprun -n 64 -N 32 ./bin/project.out -r 5 /cfs/klemming/scratch/s/sergiorg/DD2356/input/wikipedia_10GB.txt > ./results/results_64p_10GB.txt
 
-aprun -n 128 -N 32 ./bin/project.out -r 5 /cfs/klemming/scratch/s/sergiorg/DD2356/input/wikipedia_10GB.txt > results_128p_10GB.txt
+aprun -n 128 -N 32 ./bin/project.out -r 5 /cfs/klemming/scratch/s/sergiorg/DD2356/input/wikipedia_10GB.txt > ./results/results_128p_10GB.txt
 
-aprun -n 256 -N 32 ./bin/project.out -r 5 /cfs/klemming/scratch/s/sergiorg/DD2356/input/wikipedia_10GB.txt > results_256p_10GB.txt
+aprun -n 256 -N 32 ./bin/project.out -r 5 /cfs/klemming/scratch/s/sergiorg/DD2356/input/wikipedia_10GB.txt > ./results/results_256p_10GB.txt
 
 
 # Strong scalling, 160 GB
 
-aprun -n 32 -N 32 ./bin/project.out -r 5 /cfs/klemming/scratch/s/sergiorg/DD2356/input/wikipedia_160GB.txt > results_32p_160GB.txt
+aprun -n 32 -N 32 ./bin/project.out -r 5 /cfs/klemming/scratch/s/sergiorg/DD2356/input/wikipedia_160GB.txt > ./results/results_32p_160GB.txt
 
-aprun -n 64 -N 32 ./bin/project.out -r 5 /cfs/klemming/scratch/s/sergiorg/DD2356/input/wikipedia_160GB.txt > results_64p_160GB.txt
+aprun -n 64 -N 32 ./bin/project.out -r 5 /cfs/klemming/scratch/s/sergiorg/DD2356/input/wikipedia_160GB.txt > ./results/results_64p_160GB.txt
 
-aprun -n 128 -N 32 ./bin/project.out -r 5 /cfs/klemming/scratch/s/sergiorg/DD2356/input/wikipedia_160GB.txt > results_128p_160GB.txt
+aprun -n 128 -N 32 ./bin/project.out -r 5 /cfs/klemming/scratch/s/sergiorg/DD2356/input/wikipedia_160GB.txt > ./results/results_128p_160GB.txt
 
-aprun -n 256 -N 32 ./bin/project.out -r 5 /cfs/klemming/scratch/s/sergiorg/DD2356/input/wikipedia_160GB.txt > results_256p_160GB.txt
+aprun -n 256 -N 32 ./bin/project.out -r 5 /cfs/klemming/scratch/s/sergiorg/DD2356/input/wikipedia_160GB.txt > ./results/results_256p_160GB.txt

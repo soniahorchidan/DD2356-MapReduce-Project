@@ -5,4 +5,11 @@ The goal of the project was to implement a <b>MapReduce</b> framework in a high 
 
 The design includes <b>MPI</b> non-blocking  point-to-point  communication  and  collective  MPI I/O.  We  also  explored  methods  to  parallelize  the  tasks  even further, at each process’ level, by integrating <b>OpenMP</b>.
 
-To compile this code on Beskow, simply change the default compiler to <b>GNU</b> and use the provided Makefile.
+To run our code on Beskow:
+- Login with your credentials
+- ```module swap PrgEnv-cray/5.2.82 PrgEnv-gnu```
+- ```cd to_any_folder```
+- ```git clone https://github.com/SoniaHorchidan/DD2356-MapReduce-Project.git```
+- ```cd DD2356-MapReduce-Project```
+- ```make```
+- ```aprun ```

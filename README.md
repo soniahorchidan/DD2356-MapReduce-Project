@@ -8,8 +8,8 @@ The design includes <b>MPI</b> non-blocking  point-to-point  communication  and 
 To run our code on Beskow:
 - Login with your credentials
 - ```module swap PrgEnv-cray/5.2.82 PrgEnv-gnu```
-- ```cd to_any_folder```
+- ```cd to/any/folder```
 - ```git clone https://github.com/SoniaHorchidan/DD2356-MapReduce-Project.git```
 - ```cd DD2356-MapReduce-Project```
 - ```make```
-- ```aprun ```
+- ```aprun -n 32 -N 32 ./bin/project.out -r 1 /cfs/klemming/scratch/s/sergiorg/DD2356/input/wikipedia_20GB.txt```

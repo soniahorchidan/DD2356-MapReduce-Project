@@ -1,5 +1,4 @@
 #include <ctype.h>
-
 #include <omp.h>
 
 #include "framework.h"
@@ -209,12 +208,15 @@ void flat_map() {
     int buffer_size = 100;
     int word_start_index;
     int word_size;
+
+    // allocate space for the words
     char ** words = (char ** ) malloc(buffer_size * sizeof(char * ));
+
     int i;
     int word_counter = 0;
     int read_head = 0;
     int input_size = strlen(lc.small_bucket[0].key);
-    int chunk_len = input_size - lc.chunk_offset; // remove offset size
+    int chunk_len = input_size - lc.chunk_offset;           // remove offset size
 
     // skip broken word - if any
     while(!isSep(lc.small_bucket[0].key[read_head]) && read_head < chunk_len) read_head++;
@@ -226,15 +228,18 @@ void flat_map() {
         strncpy(words[word_counter], lc.small_bucket[0].key + word_start_index, word_size);
         words[word_counter][word_size] = '\0';
         word_counter++;
-        if (word_counter == buffer_size) // full
+        if (word_counter == buffer_size) {               // full
             buffer_size *= 2;
-        words = (char ** ) realloc(words, buffer_size * sizeof( * words));
+            words = (char ** ) realloc(words, buffer_size * sizeof( * words));
+        }
     }
 
+    // free read chunck of unprocessed of data
     free(lc.small_bucket[0].key);
     free(lc.small_bucket);
     lc.small_bucket = (KeyValue * ) malloc(word_counter * sizeof(KeyValue));
 
+    // create key-value pairs
     #pragma omp parallel for private(i)
     for (i = 0; i < word_counter; i++) {
 	lc.small_bucket[i].key = words[i];
@@ -243,28 +248,22 @@ void flat_map() {
 
     lc.small_bucket_size = word_counter;
 
-    //for(i = 0; i < word_counter; i ++)
-    //    printf("%d: |%s| %d\n", lc.world_rank, lc.small_bucket[i].key, strlen(lc.small_bucket[i].key));
-
     free(words);
 }
 
 unsigned long hash(char * str) {
     unsigned long hash = 5381;
     int c;
-
     while ((c = * str++))
-        hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
-
+        hash = ((hash << 5) + hash) + c; 
     return hash;
 }
 
 
 void local_reduce(KeyValue *bucket, int size) {
     // reduce sorted bucket
-    
-    int i = 0;          // iterate the bucket
 
+    int i = 0;          // iterate the bucket
     while(i < size) {
         int j = i + 1;
         int current_word_size = strlen(bucket[i].key);
@@ -299,29 +298,23 @@ void convert_buckets_into_bytes(KeyValue * bucket, int bucket_size, char ** byte
     (*bytes)[j+3] = (bucket_size & 0xff000000) >> 24;
     j+=4;
 
-
     for (i = 0; i < bucket_size; i++) {
         int str_size = strlen(bucket[i].key);
         strncpy(*bytes + j, bucket[i].key, str_size);
         j+= str_size;
-        (*bytes)[j] = '\0';
-        j++;
-        (*bytes)[j] = bucket[i].value & 0x000000ff;
-        j++;
-        (*bytes)[j] = (bucket[i].value & 0x0000ff00) >> 8;
-        j++;
-        (*bytes)[j] = (bucket[i].value & 0x00ff0000) >> 16;
-        j++;
-        (*bytes)[j] = (bucket[i].value & 0xff000000) >> 24;
-        j++;
+        (*bytes)[j ++] = '\0';
+        (*bytes)[j ++] = bucket[i].value & 0x000000ff;
+        (*bytes)[j ++] = (bucket[i].value & 0x0000ff00) >> 8;
+        (*bytes)[j ++] = (bucket[i].value & 0x00ff0000) >> 16;
+        (*bytes)[j ++] = (bucket[i].value & 0xff000000) >> 24;
     }
 }
 
 
 int compare (const void * a, const void * b) {
-  KeyValue *kv1 = (KeyValue *)a;
-  KeyValue *kv2 = (KeyValue *)b;
-  return strcmp(kv1->key, kv2->key);
+    KeyValue *kv1 = (KeyValue *)a;
+    KeyValue *kv2 = (KeyValue *)b;
+    return strcmp(kv1->key, kv2->key);
 }
 
 void sort_bucket(KeyValue *bucket, long len) {
@@ -357,15 +350,19 @@ void merge_bucket_with_byte_array(char *recv, int num_recv) {
     int size = 0;
     int i = 0;
     int j = 4;
+
+    // read how many pairs were received in the byte array
     int pairs_recv = (recv[0] & 0x000000ff)        |
                      ((recv[1] & 0x000000ff) << 8 )|
                      ((recv[2] & 0x000000ff) << 16)|
                      ((recv[3] & 0x000000ff) << 24);
 
+    // allocate memory so it fits the local pairs and the received ones
     KeyValue *merged = (KeyValue *)malloc((lc.big_bucket_size + pairs_recv) * sizeof(KeyValue));
 
     char buffer[17];
 
+    // merge the local pairs array (sorted) and the received byte array (sorted)
     while(i < lc.big_bucket_size && j < num_recv) {
         int current = j;
         int value;
@@ -490,7 +487,6 @@ void reduce() {
     for (i = 0; i < lc.world_size; i ++) {
         // wait for any message to arrive, then merge
         MPI_Waitany(lc.world_size, recv_requests, &index_rec, MPI_STATUS_IGNORE);
-        // printf("PROCESS %d RECEIVED FROM PROCESS %d\n", lc.world_rank, index_rec);
         merge_bucket_with_byte_array(recv_bytes[index_rec], recv_sizes_bytes[index_rec]);
     }
 
@@ -516,7 +512,6 @@ void write_file() {
         local_size += 2;
     }
     if(local_size==0) local_size++;
-    // printf("Rank %d will print %d chars\n", lc.world_rank, local_size);
 
     // create local result
     char * result = (char * ) malloc((local_size+1) * sizeof(char));
@@ -533,7 +528,6 @@ void write_file() {
         result[0] = '\n';
         result[1] = '\0';
     }
-    //printf("Rank %d count:%d result: |%s|\n", lc.world_rank, local_size ,result);
 
     // local sizes are distributed across the network
     int proc_size[lc.world_size];
@@ -548,8 +542,7 @@ void write_file() {
         total_size += proc_size[i];
         i++;
     }
-    //printf("Rank %d offset %d chars\n", lc.world_rank, proc_offset);
-
+    
     // write results to file
     int start_from[1] = {
         proc_offset

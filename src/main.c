@@ -82,7 +82,6 @@ int main(int argc, char *argv[])
 	return 0;
 }
 
-void print_usage(char *program)
-{
-	fprintf(stderr, "Usage: %s [Input file]\n", program);
+void print_usage(char *program) {
+	fprintf(stderr, "Usage: %s -r [Repeat run number] [Input file]\n", program);
 }
